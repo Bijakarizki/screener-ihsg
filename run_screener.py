@@ -53,15 +53,23 @@ def main():
     daily_data = screener.download_daily(
         config.TICKERS_YF,
         lookback=config.LOOKBACK_DAILY,
-        batch_size=80,
-        pause=1.5,
+        batch_size=25,
+        pause=3.0,
+        max_retries=3,
         progress_cb=progress_cb,
     )
     log(f"Berhasil download {len(daily_data)} / {len(config.TICKERS_YF)} ticker.")
 
+    success_ratio = len(daily_data) / len(config.TICKERS_YF)
     if len(daily_data) == 0:
-        log("FATAL: tidak ada data yang berhasil di-download. Berhenti.")
+        log("FATAL: tidak ada data yang berhasil di-download (kemungkinan rate-limited Yahoo Finance). Berhenti.")
         sys.exit(1)
+    elif success_ratio < 0.3:
+        log(
+            f"PERINGATAN: hanya {success_ratio*100:.0f}% ticker berhasil di-download "
+            f"(kemungkinan rate-limit parsial dari Yahoo Finance). Hasil screening kali ini "
+            f"mungkin tidak lengkap, tapi tetap akan disimpan."
+        )
 
     log("Menjalankan Setup 1 (Base/Re-Akumulasi) ...")
     r1 = screener.screen_setup1(daily_data)
