@@ -124,7 +124,7 @@ def render_chart(ticker, candles, visible_smas):
             )
 
     vol_colors = [
-        "#2BAE6680" if c >= o else "#D7263D80"
+        "rgba(43,174,102,0.5)" if c >= o else "rgba(215,38,61,0.5)"
         for o, c in zip(df["open"], df["close"])
     ]
     fig.add_trace(
