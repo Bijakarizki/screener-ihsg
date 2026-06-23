@@ -8,8 +8,12 @@ Perbedaan vs notebook:
 - Tidak ada bagian Intraday 1 menit (sengaja dihilangkan, sesuai keputusan).
 - Setiap hasil disimpan juga candle OHLCV (60 bar terakhir) untuk dipakai chart.
 - Ditambah flag `is_new` per ticker per setup, dibanding hasil run sebelumnya.
+- Download pakai session `curl_cffi` (impersonate browser Chrome) + retry & backoff,
+  supaya tahan terhadap rate-limit Yahoo Finance yang sering terjadi di server
+  datacenter seperti GitHub Actions (lihat catatan di run_screener.py).
 """
 
+import random
 import warnings
 import time
 from datetime import datetime
@@ -22,19 +26,52 @@ import config
 
 warnings.filterwarnings("ignore")
 
+try:
+    from curl_cffi import requests as curl_requests
+
+    HAS_CURL_CFFI = True
+except ImportError:
+    HAS_CURL_CFFI = False
+
+
+def make_session():
+    """
+    Session yang menyamar sebagai browser Chrome asli (TLS fingerprint level),
+    supaya tidak mudah dikenali & di-rate-limit sebagai bot oleh Yahoo Finance.
+    Fallback ke session requests biasa kalau curl_cffi tidak terpasang.
+    """
+    if HAS_CURL_CFFI:
+        return curl_requests.Session(impersonate="chrome")
+    return None
+
 
 # ============================================================
 # DOWNLOAD DATA
 # ============================================================
-def download_daily(tickers, lookback=250, batch_size=80, pause=1.0, progress_cb=None):
+def download_daily(
+    tickers,
+    lookback=250,
+    batch_size=25,
+    pause=3.0,
+    max_retries=3,
+    progress_cb=None,
+):
     """
     Download OHLCV daily untuk semua ticker, hitung semua SMA.
-    Pakai yf.download batch (lebih cepat & lebih jarang di-rate-limit
-    dibanding loop satu-satu seperti di notebook asli).
+
+    Strategi anti-rate-limit:
+    - batch kecil (default 25 ticker/batch, bukan 80) supaya tiap request
+      ke Yahoo lebih ringan dan jarang dianggap mencurigakan.
+    - session curl_cffi impersonate Chrome (TLS fingerprint browser asli).
+    - retry dengan exponential backoff + jitter kalau satu batch gagal total
+      (indikasi kena rate-limit 429 / blocked sesaat).
+    - delay antar batch (default 3 detik) supaya tidak membombardir Yahoo.
+
     Return dict {ticker_tanpa_jk: DataFrame}.
     """
     data = {}
     all_periods = config.SMA_KECIL + config.SMA_PENGGIRING + config.SMA_BESAR
+    session = make_session()
 
     total = len(tickers)
     for i in range(0, total, batch_size):
@@ -42,18 +79,37 @@ def download_daily(tickers, lookback=250, batch_size=80, pause=1.0, progress_cb=
         if progress_cb:
             progress_cb(i, total, batch)
 
-        try:
-            raw = yf.download(
-                batch,
-                period="2y",
-                interval="1d",
-                progress=False,
-                auto_adjust=True,
-                group_by="ticker",
-                threads=True,
-            )
-        except Exception as e:
-            print(f"   batch error {i}: {e}")
+        attempt = 0
+        raw = None
+        while attempt < max_retries:
+            try:
+                raw = yf.download(
+                    batch,
+                    period="2y",
+                    interval="1d",
+                    progress=False,
+                    auto_adjust=True,
+                    group_by="ticker",
+                    threads=True,
+                    session=session,
+                )
+                # Kalau hasilnya kosong total, anggap kena rate-limit -> retry
+                if raw is None or raw.empty:
+                    raise ValueError("Hasil download kosong (kemungkinan rate-limited)")
+                break
+            except Exception as e:
+                attempt += 1
+                wait = pause * (2 ** attempt) + random.uniform(0, 2)
+                print(f"   batch {i} gagal (percobaan {attempt}/{max_retries}): {e}")
+                if attempt < max_retries:
+                    print(f"   menunggu {wait:.1f}s sebelum retry ...")
+                    time.sleep(wait)
+                    # session baru untuk percobaan berikutnya (kadang cookie/crumb basi)
+                    session = make_session()
+                else:
+                    print(f"   batch {i} dilewati setelah {max_retries} percobaan.")
+
+        if raw is None or raw.empty:
             time.sleep(pause)
             continue
 
@@ -84,7 +140,7 @@ def download_daily(tickers, lookback=250, batch_size=80, pause=1.0, progress_cb=
             except Exception:
                 continue
 
-        time.sleep(pause)
+        time.sleep(pause + random.uniform(0, 1.5))
 
     return data
 
