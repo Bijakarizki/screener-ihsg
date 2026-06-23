@@ -1,4 +1,4 @@
-# 📈 Screener Saham IHSG — Full Cloud, Gratis
+
 
 Web app screener saham IHSG berdasarkan logic dari notebook aslinya (Setup 1, 2, 3),
 jalan otomatis tiap hari setelah market close, gratis selamanya, tanpa perlu laptop nyala.
@@ -99,6 +99,19 @@ screener_app/
 Semua angka (toleransi SMA, minimal gap TP, dll) ada di `config.py`, sama persis
 dengan notebook aslinya. Tinggal ubah angkanya, commit, push — hasil run berikutnya
 otomatis pakai parameter baru.
+
+## 🛡️ Soal rate-limit Yahoo Finance
+Yahoo Finance kadang membatasi (rate-limit) request dari server yang mengirim banyak
+permintaan sekaligus, termasuk dari GitHub Actions. Untuk mengatasi ini, `screener.py`
+sudah dilengkapi:
+- Session yang menyamar sebagai browser Chrome asli (`curl_cffi`), bukan request polos.
+- Download dipecah jadi batch kecil (25 saham/batch) dengan jeda antar batch.
+- Retry otomatis dengan backoff kalau satu batch gagal total.
+
+Kalau suatu hari hasil run tetap kosong atau jauh lebih sedikit dari biasanya (cek log
+di tab Actions), itu tanda Yahoo sedang membatasi cukup keras — coba **Run workflow**
+manual lagi beberapa jam kemudian, biasanya sudah normal lagi. Ini bukan bug di kode,
+melainkan kebijakan pembatasan dari pihak Yahoo yang di luar kendali kita.
 
 ## ⚠️ Disclaimer
 Ini alat bantu analisa teknikal berbasis SMA dan volume, **bukan rekomendasi atau
