@@ -154,8 +154,23 @@ SMA20_TO_SMABT_MIN = 0.08         # 8% gap minimum
 # Setup 2 -- maks jarak harga ke SMA Besar supaya dianggap "otw mendekati"
 APPROACHING_PCT = 0.7
 
-# Setup 3 -- volume harus di atas volume SMA 20
-VOL_MULTIPLIER = 1.0
+# Setup 3 -- volume harus berapa kali lipat di atas volume SMA20 supaya dianggap "big volume"
+# (dipakai juga oleh cek "pernah big volume" di Setup 1 -- lihat BIG_VOLUME_LOOKBACK_DAYS di bawah)
+# CATATAN: sebelumnya nilai ini (1.0) tidak dipakai, screen_setup3() hardcode 1.5 langsung.
+# Sekarang disamakan ke 1.5 supaya perilaku Setup 3 yang sudah ada tidak berubah,
+# dan screener.py sudah diubah supaya benar-benar membaca dari sini.
+VOL_MULTIPLIER = 1.5
+
+# Setup 1 -- filter TAMBAHAN (opsional, via checkbox di web): SMA20 juga ikut "melilit"
+# rapat bareng SMA3/5/10 (bukan cuma "gak jauh-jauh" seperti SMA20_TOL_MAHAL/MURAH di atas).
+# Spread ke-4 SMA (3,5,10,20) dihitung sama seperti SMA_CLUSTER_TOLERANCE, tapi dengan
+# toleransi yang jauh lebih ketat, karena rata-rata saham sekarang SMA20-nya sudah jauh
+# dari cluster SMA kecil.
+SMA20_KETAT_TOLERANCE = 0.15      # 15% spread maks antar SMA3/5/10/20 kalau mau "ketat"
+
+# Setup 1 -- filter TAMBAHAN (opsional, via checkbox di web): tandai saham yang PERNAH
+# (bukan cuma hari ini) mengalami big volume dalam N hari terakhir.
+BIG_VOLUME_LOOKBACK_DAYS = 10     # cek volume N hari terakhir vs VolSMA20
 
 # ============================================================
 # DATA OUTPUT
