@@ -188,46 +188,24 @@ def sma_kecil_mepet(row):
     return True
 
 
-def sma20_ikut_melilit(row, tolerance=None):
+def hitung_spread_sma20_cluster(row):
     """
-    Cek apakah SMA20 ikut melilit RAPAT bareng SMA3/5/10 (bukan cuma "gak jauh-jauh"
-    seperti gap_sma20 di sma_kecil_mepet). Dipakai untuk filter opsional "SMA20 Ketat"
-    di web -- supaya bisa cari saham yang benar-benar konsolidasi di 4 SMA sekaligus,
-    bukan yang SMA20-nya sudah kabur jauh dari cluster SMA kecil.
+    Hitung spread (desimal, misal 0.12 = 12%) antara SMA3/5/10/20 -- dipakai untuk
+    filter "SMA20 Ketat" di web, yang toleransinya diatur live lewat slider
+    (SMA20_KETAT_TOLERANCE di config.py cuma default posisi slider).
+    Return None kalau salah satu SMA belum tersedia (data kurang panjang).
     """
-    tol = tolerance if tolerance is not None else config.SMA20_KETAT_TOLERANCE
     vals = []
     for p in [3, 5, 10, 20]:
         v = row.get(f"SMA{p}", np.nan)
         if np.isnan(v):
-            return False
+            return None
         vals.append(v)
 
     mid = np.mean(vals)
     if mid == 0:
-        return False
-    spread = (max(vals) - min(vals)) / mid
-    return spread <= tol
-
-
-def pernah_big_volume(df, lookback=None, ratio=None):
-    """
-    Cek apakah dalam `lookback` hari terakhir (bukan cuma hari ini) pernah ada bar
-    dengan Volume >= `ratio` x VolSMA20. Dipakai untuk filter opsional "Pernah Big
-    Volume" di web -- menandai saham yang pernah ada aktivitas volume tidak biasa
-    baru-baru ini, walau hari ini volumenya sudah normal lagi.
-    """
-    lookback = lookback if lookback is not None else config.BIG_VOLUME_LOOKBACK_DAYS
-    ratio = ratio if ratio is not None else config.VOL_MULTIPLIER
-
-    tail = df.tail(lookback)
-    valid = tail.dropna(subset=["Volume", "VolSMA20"])
-    valid = valid[valid["VolSMA20"] > 0]
-    if valid.empty:
-        return False
-
-    vol_ratios = valid["Volume"] / valid["VolSMA20"]
-    return bool((vol_ratios >= ratio).any())
+        return None
+    return (max(vals) - min(vals)) / mid
 
 
 def find_nearest_sma_besar_below(row, price):
@@ -293,6 +271,8 @@ def screen_setup1(daily_data):
             if not np.isnan(v) and v > close:
                 all_tp.append(f"SMA{p}={v:.0f} (+{pct_gap(v, close) * 100:.1f}%)")
 
+        spread4 = hitung_spread_sma20_cluster(row)
+
         results.append(
             {
                 "Ticker": tkr,
@@ -308,8 +288,9 @@ def screen_setup1(daily_data):
                 "TP_Val": round(tp_val, 0),
                 "TP_Pot_pct": round(tp_pct * 100, 2),
                 "Semua_TP": " | ".join(all_tp) if all_tp else "-",
-                "SMA20_Ketat": sma20_ikut_melilit(row),
-                "Pernah_Big_Volume": pernah_big_volume(df),
+                "SMA20_Cluster4_Spread_pct": (
+                    round(spread4 * 100, 2) if spread4 is not None else None
+                ),
                 "Setup": "1",
                 "Setup_Label": "Base / Re-Akumulasi",
             }
@@ -453,6 +434,7 @@ def extract_chart_data(df, n=90):
             "low": round(float(r["Low"]), 2) if not pd.isna(r["Low"]) else None,
             "close": round(float(r["Close"]), 2) if not pd.isna(r["Close"]) else None,
             "volume": int(r["Volume"]) if not pd.isna(r["Volume"]) else 0,
+            "vol_sma20": round(float(r["VolSMA20"]), 2) if not pd.isna(r.get("VolSMA20", np.nan)) else None,
         }
         for c in sma_cols:
             v = r.get(c, np.nan)
