@@ -215,6 +215,24 @@ def format_rupiah(v):
     return f"{v:,.0f}".replace(",", ".")
 
 
+def cek_big_volume_terakhir(chart_rows, lookback_days, ratio):
+    """
+    Cek apakah dalam `lookback_days` hari terakhir (dari data chart, bukan cuma
+    hari ini) pernah ada bar dengan volume >= `ratio` x rata-rata volume 20 hari.
+    Ringan (pure Python, tanpa pandas) karena dipanggil untuk tiap baris tiap rerun.
+    """
+    if not chart_rows:
+        return False
+    for bar in chart_rows[-lookback_days:]:
+        vol = bar.get("volume")
+        vol_sma = bar.get("vol_sma20")
+        if vol is None or not vol_sma:
+            continue
+        if vol / vol_sma >= ratio:
+            return True
+    return False
+
+
 # ============================================================
 # CHART
 # ============================================================
@@ -296,13 +314,20 @@ def render_chart(candles, visible_smas):
 # BARIS HASIL (ringkas + detail saat expand)
 # ============================================================
 @st.fragment
-def render_result_row(row, charts):
+def render_result_row(row, charts, sma20_tol_pct, big_vol_days):
     info = CATEGORY_INFO[row["Setup"]]
     tp_pct = row.get("TP_Pot_pct")
     tp_class = "tp-pos" if (tp_pct or 0) >= 0 else "tp-neg"
     new_html = "<span class='tag-new'>Baru</span>" if row.get("is_new") else ""
-    ketat_html = "<span class='tag-ketat'>SMA20 Ketat</span>" if row.get("SMA20_Ketat") else ""
-    bigvol_html = "<span class='tag-bigvol'>Big Vol</span>" if row.get("Pernah_Big_Volume") else ""
+
+    spread4 = row.get("SMA20_Cluster4_Spread_pct")
+    is_ketat = row["Setup"] == "1" and spread4 is not None and spread4 <= sma20_tol_pct
+    ketat_html = "<span class='tag-ketat'>SMA20 Ketat</span>" if is_ketat else ""
+
+    is_bigvol = row["Setup"] == "1" and cek_big_volume_terakhir(
+        charts.get(row["Ticker"]), big_vol_days, config.VOL_MULTIPLIER
+    )
+    bigvol_html = "<span class='tag-bigvol'>Big Vol</span>" if is_bigvol else ""
 
     st.markdown('<div class="row-card">', unsafe_allow_html=True)
     c1, c2, c3, c4, c5 = st.columns([0.5, 1.6, 1.3, 1.2, 1.3])
@@ -336,6 +361,8 @@ def render_result_row(row, charts):
                     f"Rp {format_rupiah(row['SMA3'])} / Rp {format_rupiah(row['SMA5'])} / "
                     f"Rp {format_rupiah(row['SMA10'])} / Rp {format_rupiah(row['SMA20'])}"
                 )
+                if row.get("SMA20_Cluster4_Spread_pct") is not None:
+                    st.write(f"Spread SMA3/5/10/20: {row['SMA20_Cluster4_Spread_pct']:.1f}%")
                 st.write(f"Target: {row['TP_Target']} = Rp {format_rupiah(row['TP_Val'])}")
                 st.write(f"Semua level di atas: {row['Semua_TP']}")
             elif row["Setup"] == "2":
@@ -423,18 +450,27 @@ def main():
     only_new = st.sidebar.checkbox("Hanya tampilkan yang baru", value=False)
 
     st.sidebar.markdown("**Filter khusus Potential 4H (Setup 1)**")
-    filter_sma20_ketat = st.sidebar.checkbox(
-        "SMA20 ikut melilit rapat (ketat)",
-        value=False,
-        help=f"Spread SMA3/5/10/20 <= {config.SMA20_KETAT_TOLERANCE*100:.0f}% "
-        "(lebih ketat dari kriteria dasar Setup 1). Tidak memengaruhi Setup 2/3.",
+    filter_sma20_ketat = st.sidebar.checkbox("SMA20 ikut melilit rapat (ketat)", value=False)
+    sma20_tol_pct = st.sidebar.slider(
+        "Toleransi spread SMA3/5/10/20 (%)",
+        min_value=int(config.SMA20_KETAT_TOLERANCE_MIN * 100),
+        max_value=int(config.SMA20_KETAT_TOLERANCE_MAX * 100),
+        value=int(config.SMA20_KETAT_TOLERANCE * 100),
+        step=1,
+        disabled=not filter_sma20_ketat,
+        help="Makin kecil = makin ketat/rapat ke-4 SMA-nya, makin sedikit saham yang lolos.",
     )
-    filter_big_vol_history = st.sidebar.checkbox(
-        f"Pernah big volume ({config.BIG_VOLUME_LOOKBACK_DAYS} hari terakhir)",
-        value=False,
-        help=f"Volume >= {config.VOL_MULTIPLIER}x rata-rata 20 hari, kapan saja dalam "
-        f"{config.BIG_VOLUME_LOOKBACK_DAYS} hari terakhir (bukan cuma hari ini). "
-        "Tidak memengaruhi Setup 2/3.",
+
+    filter_big_vol_history = st.sidebar.checkbox("Pernah big volume", value=False)
+    big_vol_days = st.sidebar.slider(
+        "Cek berapa hari terakhir",
+        min_value=config.BIG_VOLUME_LOOKBACK_DAYS_MIN,
+        max_value=config.BIG_VOLUME_LOOKBACK_DAYS_MAX,
+        value=config.BIG_VOLUME_LOOKBACK_DAYS,
+        step=1,
+        disabled=not filter_big_vol_history,
+        help=f"Volume >= {config.VOL_MULTIPLIER}x rata-rata 20 hari, kapan saja dalam rentang "
+        "hari ini. Tidak memengaruhi Setup 2/3.",
     )
 
     min_tp = st.sidebar.slider("Minimal potential (%)", 0, 100, 0, step=5)
@@ -458,8 +494,16 @@ def main():
         and (not only_new or r.get("is_new"))
         and (r.get("TP_Pot_pct") is None or r.get("TP_Pot_pct") >= min_tp)
         and (search == "" or search in r["Ticker"])
-        and (not filter_sma20_ketat or r["Setup"] != "1" or r.get("SMA20_Ketat"))
-        and (not filter_big_vol_history or r["Setup"] != "1" or r.get("Pernah_Big_Volume"))
+        and (
+            not filter_sma20_ketat
+            or r["Setup"] != "1"
+            or (r.get("SMA20_Cluster4_Spread_pct") is not None and r["SMA20_Cluster4_Spread_pct"] <= sma20_tol_pct)
+        )
+        and (
+            not filter_big_vol_history
+            or r["Setup"] != "1"
+            or cek_big_volume_terakhir(charts.get(r["Ticker"]), big_vol_days, config.VOL_MULTIPLIER)
+        )
     ]
 
     if not filtered:
@@ -476,7 +520,7 @@ def main():
     show_list = filtered if n_show == "Semua" else filtered[: int(n_show)]
 
     for row in show_list:
-        render_result_row(row, charts)
+        render_result_row(row, charts, sma20_tol_pct, big_vol_days)
 
     if n_show != "Semua" and len(filtered) > int(n_show):
         st.markdown(
