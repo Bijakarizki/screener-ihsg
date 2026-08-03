@@ -161,16 +161,20 @@ APPROACHING_PCT = 0.7
 # dan screener.py sudah diubah supaya benar-benar membaca dari sini.
 VOL_MULTIPLIER = 1.5
 
-# Setup 1 -- filter TAMBAHAN (opsional, via checkbox di web): SMA20 juga ikut "melilit"
+# Setup 1 -- filter TAMBAHAN (slider di sidebar web): SMA20 juga ikut "melilit"
 # rapat bareng SMA3/5/10 (bukan cuma "gak jauh-jauh" seperti SMA20_TOL_MAHAL/MURAH di atas).
-# Spread ke-4 SMA (3,5,10,20) dihitung sama seperti SMA_CLUSTER_TOLERANCE, tapi dengan
-# toleransi yang jauh lebih ketat, karena rata-rata saham sekarang SMA20-nya sudah jauh
-# dari cluster SMA kecil.
-SMA20_KETAT_TOLERANCE = 0.15      # 15% spread maks antar SMA3/5/10/20 kalau mau "ketat"
+# Spread ke-4 SMA (3,5,10,20) dihitung sama seperti SMA_CLUSTER_TOLERANCE. Angka di sini
+# cuma DEFAULT posisi slider saat web pertama dibuka -- user bisa geser sendiri di sidebar.
+SMA20_KETAT_TOLERANCE = 0.15          # default slider: 15%
+SMA20_KETAT_TOLERANCE_MIN = 0.05      # batas bawah slider: 5%
+SMA20_KETAT_TOLERANCE_MAX = 0.50      # batas atas slider: 50%
 
-# Setup 1 -- filter TAMBAHAN (opsional, via checkbox di web): tandai saham yang PERNAH
-# (bukan cuma hari ini) mengalami big volume dalam N hari terakhir.
-BIG_VOLUME_LOOKBACK_DAYS = 10     # cek volume N hari terakhir vs VolSMA20
+# Setup 1 -- filter TAMBAHAN (slider di sidebar web): tandai saham yang PERNAH
+# (bukan cuma hari ini) mengalami big volume dalam N hari terakhir. N-nya juga
+# bisa diatur langsung di web -- angka di sini cuma default posisi slider.
+BIG_VOLUME_LOOKBACK_DAYS = 10         # default slider: 10 hari
+BIG_VOLUME_LOOKBACK_DAYS_MIN = 3      # batas bawah slider: 3 hari
+BIG_VOLUME_LOOKBACK_DAYS_MAX = 30     # batas atas slider: 30 hari
 
 # ============================================================
 # DATA OUTPUT
