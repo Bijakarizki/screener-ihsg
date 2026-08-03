@@ -31,30 +31,82 @@ st.set_page_config(
 )
 
 # ============================================================
-# DESIGN TOKENS -- monokrom + satu aksen warna untuk +/- saja
+# DESIGN TOKENS -- dark "quant terminal": navy + indigo accent,
+# monospace untuk ticker/harga, kartu kaca tipis, grid halus di background.
 # ============================================================
-INK = "#1a1a1a"
-MUTED = "#6b6b6b"
-FAINT = "#9a9a9a"
-LINE = "#e5e5e5"
-BG_SOFT = "#f7f7f7"
-POS = "#1a7a4c"
-NEG = "#b3261e"
+BG = "#0a0e17"
+BG_CARD = "rgba(255,255,255,0.035)"
+INK = "#e7e9f5"
+MUTED = "#8b93ab"
+FAINT = "#5a6178"
+LINE = "rgba(255,255,255,0.09)"
+ACCENT = "#7c6cff"
+ACCENT_SOFT = "rgba(124,108,255,0.16)"
+POS = "#2fd48c"
+NEG = "#ff5470"
 
 CSS = f"""
 <style>
-.block-container {{ padding-top: 2.2rem; max-width: 1100px; }}
-h1, h2, h3 {{ font-weight: 600 !important; letter-spacing: -0.01em; }}
-[data-testid="stMetricValue"] {{ font-weight: 600; color: {INK}; }}
-[data-testid="stMetricLabel"] {{ color: {MUTED}; }}
-hr {{ border-color: {LINE} !important; margin: 0.6rem 0 !important; }}
-.row-card {{
-    padding: 14px 4px;
-    border-bottom: 1px solid {LINE};
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+.stApp {{
+    background:
+        radial-gradient(circle at 12% 0%, rgba(124,108,255,0.10) 0%, transparent 40%),
+        radial-gradient(circle at 100% 20%, rgba(47,212,140,0.06) 0%, transparent 35%),
+        {BG};
 }}
+.block-container {{ padding-top: 2.2rem; max-width: 1100px; }}
+
+h1, h2, h3 {{
+    font-family: 'Space Grotesk', sans-serif !important;
+    font-weight: 600 !important;
+    letter-spacing: -0.01em;
+    color: {INK} !important;
+}}
+h1 {{
+    display: inline-block;
+    background: linear-gradient(90deg, {INK} 40%, {ACCENT} 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent !important;
+}}
+.accent-line {{
+    height: 2px;
+    width: 64px;
+    margin: 6px 0 18px 0;
+    background: linear-gradient(90deg, {ACCENT}, transparent);
+    border-radius: 2px;
+}}
+
+[data-testid="stMetric"] {{
+    background: {BG_CARD};
+    border: 1px solid {LINE};
+    border-radius: 10px;
+    padding: 10px 14px 6px 14px;
+}}
+[data-testid="stMetricValue"] {{
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 600;
+    color: {INK};
+}}
+[data-testid="stMetricLabel"] {{ color: {MUTED}; }}
+
+hr {{ border-color: {LINE} !important; margin: 0.6rem 0 !important; }}
+
+.row-card {{
+    padding: 14px 12px;
+    margin-bottom: 6px;
+    border: 1px solid {LINE};
+    border-radius: 10px;
+    background: {BG_CARD};
+    transition: border-color 0.15s ease;
+}}
+.row-card:hover {{ border-color: rgba(124,108,255,0.35); }}
+
 .tag {{
     display: inline-block;
-    font-size: 0.78rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.72rem;
     color: {MUTED};
     border: 1px solid {LINE};
     border-radius: 6px;
@@ -63,21 +115,54 @@ hr {{ border-color: {LINE} !important; margin: 0.6rem 0 !important; }}
 }}
 .tag-new {{
     display: inline-block;
-    font-size: 0.72rem;
-    color: {INK};
-    background: {BG_SOFT};
+    font-size: 0.68rem;
+    color: {ACCENT};
+    background: {ACCENT_SOFT};
     border-radius: 5px;
     padding: 1px 7px;
     font-weight: 600;
     margin-left: 6px;
 }}
-.ticker {{ font-size: 1.05rem; font-weight: 600; color: {INK}; }}
-.price {{ font-size: 0.95rem; color: {MUTED}; }}
-.tp-pos {{ font-weight: 600; font-size: 1.0rem; color: {POS}; }}
-.tp-neg {{ font-weight: 600; font-size: 1.0rem; color: {NEG}; }}
-.rank {{ color: {FAINT}; font-size: 0.85rem; }}
+.tag-ketat {{
+    display: inline-block;
+    font-size: 0.66rem;
+    color: {POS};
+    background: rgba(47,212,140,0.12);
+    border-radius: 5px;
+    padding: 1px 7px;
+    font-weight: 600;
+    margin-left: 6px;
+}}
+.tag-bigvol {{
+    display: inline-block;
+    font-size: 0.66rem;
+    color: #ffb020;
+    background: rgba(255,176,32,0.12);
+    border-radius: 5px;
+    padding: 1px 7px;
+    font-weight: 600;
+    margin-left: 6px;
+}}
+
+.ticker {{
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 1.02rem;
+    font-weight: 600;
+    color: {INK};
+    letter-spacing: 0.01em;
+}}
+.price {{
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.92rem;
+    color: {MUTED};
+}}
+.tp-pos {{ font-family: 'JetBrains Mono', monospace; font-weight: 600; font-size: 1.0rem; color: {POS}; }}
+.tp-neg {{ font-family: 'JetBrains Mono', monospace; font-weight: 600; font-size: 1.0rem; color: {NEG}; }}
+.rank {{ color: {FAINT}; font-size: 0.82rem; font-family: 'JetBrains Mono', monospace; }}
 .section-desc {{ color: {MUTED}; font-size: 0.88rem; line-height: 1.5; }}
 .disclaimer {{ color: {FAINT}; font-size: 0.78rem; line-height: 1.5; }}
+
+section[data-testid="stSidebar"] {{ background: #0d1220; border-right: 1px solid {LINE}; }}
 </style>
 """
 
@@ -97,13 +182,13 @@ CATEGORY_INFO = {
 }
 
 SMA_COLORS = {
-    "SMA3": "#c9a227",
-    "SMA5": "#b07d1f",
-    "SMA10": "#8a5a2b",
-    "SMA20": "#3b6ea5",
-    "SMA60": "#1a7a4c",
-    "SMA100": "#5b4a8a",
-    "SMA200": "#1a1a1a",
+    "SMA3": "#ffd166",
+    "SMA5": "#f4a261",
+    "SMA10": "#e76f51",
+    "SMA20": "#4cc9f0",
+    "SMA60": "#2fd48c",
+    "SMA100": "#9d8cff",
+    "SMA200": "#e7e9f5",
 }
 
 
@@ -173,7 +258,7 @@ def render_chart(candles, visible_smas):
             )
 
     vol_colors = [
-        "rgba(26,122,76,0.45)" if c >= o else "rgba(179,38,30,0.45)"
+        "rgba(47,212,140,0.45)" if c >= o else "rgba(255,84,112,0.45)"
         for o, c in zip(df["open"], df["close"])
     ]
     fig.add_trace(
@@ -190,11 +275,14 @@ def render_chart(candles, visible_smas):
         height=440,
         margin=dict(l=10, r=10, t=10, b=10),
         xaxis_rangeslider_visible=False,
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0, font=dict(size=11)),
+        legend=dict(
+            orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0,
+            font=dict(size=11, color=INK),
+        ),
         yaxis=dict(domain=[0.28, 1.0], title=None, side="right", gridcolor=LINE),
         yaxis2=dict(domain=[0.0, 0.2], title=None, showticklabels=False),
-        plot_bgcolor="white",
-        paper_bgcolor="white",
+        plot_bgcolor="rgba(0,0,0,0)",
+        paper_bgcolor="rgba(0,0,0,0)",
         hovermode="x unified",
         font=dict(color=INK, size=12),
     )
@@ -207,18 +295,24 @@ def render_chart(candles, visible_smas):
 # ============================================================
 # BARIS HASIL (ringkas + detail saat expand)
 # ============================================================
+@st.fragment
 def render_result_row(row, charts):
     info = CATEGORY_INFO[row["Setup"]]
     tp_pct = row.get("TP_Pot_pct")
     tp_class = "tp-pos" if (tp_pct or 0) >= 0 else "tp-neg"
     new_html = "<span class='tag-new'>Baru</span>" if row.get("is_new") else ""
+    ketat_html = "<span class='tag-ketat'>SMA20 Ketat</span>" if row.get("SMA20_Ketat") else ""
+    bigvol_html = "<span class='tag-bigvol'>Big Vol</span>" if row.get("Pernah_Big_Volume") else ""
 
     st.markdown('<div class="row-card">', unsafe_allow_html=True)
     c1, c2, c3, c4, c5 = st.columns([0.5, 1.6, 1.3, 1.2, 1.3])
     with c1:
         st.markdown(f"<span class='rank'>{row['rank']}</span>", unsafe_allow_html=True)
     with c2:
-        st.markdown(f"<span class='ticker'>{row['Ticker']}</span>{new_html}", unsafe_allow_html=True)
+        st.markdown(
+            f"<span class='ticker'>{row['Ticker']}</span>{new_html}{ketat_html}{bigvol_html}",
+            unsafe_allow_html=True,
+        )
     with c3:
         st.markdown(f"<span class='price'>Rp {format_rupiah(row['Close'])}</span>", unsafe_allow_html=True)
     with c4:
@@ -283,6 +377,7 @@ def main():
 
     st.markdown(
         f"<h1 style='margin-bottom:0.1rem'>Screener Saham IHSG</h1>"
+        f"<div class='accent-line'></div>"
         f"<p style='color:{MUTED};margin-top:0;font-size:0.95rem'>"
         f"Pemindaian otomatis setiap penutupan pasar, diurutkan dari potensi take profit terbesar.</p>",
         unsafe_allow_html=True,
@@ -326,6 +421,22 @@ def main():
         format_func=lambda s: CATEGORY_INFO[s]["label"],
     )
     only_new = st.sidebar.checkbox("Hanya tampilkan yang baru", value=False)
+
+    st.sidebar.markdown("**Filter khusus Potential 4H (Setup 1)**")
+    filter_sma20_ketat = st.sidebar.checkbox(
+        "SMA20 ikut melilit rapat (ketat)",
+        value=False,
+        help=f"Spread SMA3/5/10/20 <= {config.SMA20_KETAT_TOLERANCE*100:.0f}% "
+        "(lebih ketat dari kriteria dasar Setup 1). Tidak memengaruhi Setup 2/3.",
+    )
+    filter_big_vol_history = st.sidebar.checkbox(
+        f"Pernah big volume ({config.BIG_VOLUME_LOOKBACK_DAYS} hari terakhir)",
+        value=False,
+        help=f"Volume >= {config.VOL_MULTIPLIER}x rata-rata 20 hari, kapan saja dalam "
+        f"{config.BIG_VOLUME_LOOKBACK_DAYS} hari terakhir (bukan cuma hari ini). "
+        "Tidak memengaruhi Setup 2/3.",
+    )
+
     min_tp = st.sidebar.slider("Minimal potential (%)", 0, 100, 0, step=5)
     search = st.sidebar.text_input("Cari ticker", "").upper().strip()
 
@@ -347,6 +458,8 @@ def main():
         and (not only_new or r.get("is_new"))
         and (r.get("TP_Pot_pct") is None or r.get("TP_Pot_pct") >= min_tp)
         and (search == "" or search in r["Ticker"])
+        and (not filter_sma20_ketat or r["Setup"] != "1" or r.get("SMA20_Ketat"))
+        and (not filter_big_vol_history or r["Setup"] != "1" or r.get("Pernah_Big_Volume"))
     ]
 
     if not filtered:
