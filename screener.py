@@ -285,6 +285,7 @@ def screen_setup1(daily_data):
                 "Gap_SMA20_cluster_pct": round(gap_sma20_pct, 2) if not np.isnan(gap_sma20_pct) else None,
                 "Gap_SMA20_ke_TP_pct": round(gap_sma20_to_tp * 100, 2),
                 "TP_Target": f"SMA{tp_period}",
+                "TP_Period": tp_period,
                 "TP_Val": round(tp_val, 0),
                 "TP_Pot_pct": round(tp_pct * 100, 2),
                 "Semua_TP": " | ".join(all_tp) if all_tp else "-",
