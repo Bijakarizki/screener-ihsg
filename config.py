@@ -155,18 +155,22 @@ SMA20_TO_SMABT_MIN = 0.08         # 8% gap minimum
 APPROACHING_PCT = 0.7
 
 # Setup 3 -- volume harus berapa kali lipat di atas volume SMA20 supaya dianggap "big volume"
-# (dipakai juga oleh cek "pernah big volume" di Setup 1 -- lihat BIG_VOLUME_LOOKBACK_DAYS di bawah)
-# CATATAN: sebelumnya nilai ini (1.0) tidak dipakai, screen_setup3() hardcode 1.5 langsung.
-# Sekarang disamakan ke 1.5 supaya perilaku Setup 3 yang sudah ada tidak berubah,
-# dan screener.py sudah diubah supaya benar-benar membaca dari sini.
+# (dipakai juga sebagai DEFAULT slider "seberapa besar" untuk cek "pernah big volume" di
+# Setup 1 -- lihat VOL_MULTIPLIER_MIN/MAX di bawah, slider-nya bisa digeser live di web)
 VOL_MULTIPLIER = 1.5
+
+# Setup 1 -- filter TAMBAHAN (slider di sidebar web): seberapa besar kelipatan volume
+# (vs rata-rata 20 hari) supaya dianggap "big volume". Angka di sini cuma batas slider,
+# VOL_MULTIPLIER di atas tetap dipakai sebagai default posisi slider & untuk Setup 3.
+VOL_MULTIPLIER_MIN = 1.2              # batas bawah slider: 1.2x
+VOL_MULTIPLIER_MAX = 5.0              # batas atas slider: 5.0x
 
 # Setup 1 -- filter TAMBAHAN (slider di sidebar web): SMA20 juga ikut "melilit"
 # rapat bareng SMA3/5/10 (bukan cuma "gak jauh-jauh" seperti SMA20_TOL_MAHAL/MURAH di atas).
 # Spread ke-4 SMA (3,5,10,20) dihitung sama seperti SMA_CLUSTER_TOLERANCE. Angka di sini
 # cuma DEFAULT posisi slider saat web pertama dibuka -- user bisa geser sendiri di sidebar.
 SMA20_KETAT_TOLERANCE = 0.15          # default slider: 15%
-SMA20_KETAT_TOLERANCE_MIN = 0.05      # batas bawah slider: 5%
+SMA20_KETAT_TOLERANCE_MIN = 0.0       # batas bawah slider: 0% (paling ketat, SMA20 nyaris nempel SMA3/5/10)
 SMA20_KETAT_TOLERANCE_MAX = 0.50      # batas atas slider: 50%
 
 # Setup 1 -- filter TAMBAHAN (slider di sidebar web): tandai saham yang PERNAH
