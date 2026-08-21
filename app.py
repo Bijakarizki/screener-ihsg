@@ -30,6 +30,14 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+# ---------- DEBUG SEMENTARA: hapus lagi setelah masalah ketemu ----------
+st.warning(
+    f"DEBUG -- config.py yang ke-load: `{config.__file__}` | "
+    f"punya CLUSTER_CONSISTENCY_DAYS_MIN: "
+    f"{hasattr(config, 'CLUSTER_CONSISTENCY_DAYS_MIN')}"
+)
+# -------------------------------------------------------------------------
+
 # ============================================================
 # DESIGN TOKENS -- dark "quant terminal": navy + indigo accent,
 # monospace untuk ticker/harga, kartu kaca tipis, grid halus di background.
