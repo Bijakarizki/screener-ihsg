@@ -180,6 +180,15 @@ BIG_VOLUME_LOOKBACK_DAYS = 10         # default slider: 10 hari
 BIG_VOLUME_LOOKBACK_DAYS_MIN = 3      # batas bawah slider: 3 hari
 BIG_VOLUME_LOOKBACK_DAYS_MAX = 30     # batas atas slider: 30 hari
 
+# Setup 1 -- filter TAMBAHAN (slider di sidebar web): SMA3/5/10/20 harus rapat
+# SECARA KONSISTEN selama N hari terakhir berturut-turut (bukan cuma hari ini),
+# supaya pita SMA-nya kelihatan rapi seperti contoh TradingView -- bukan cuma
+# nyentuh sesaat lalu mencar lagi. Pakai toleransi spread yang sama dengan
+# slider "SMA20 ikut melilit rapat" (SMA20_KETAT_TOLERANCE) di atas.
+CLUSTER_CONSISTENCY_DAYS = 5           # default slider: 5 hari
+CLUSTER_CONSISTENCY_DAYS_MIN = 2       # batas bawah slider: 2 hari
+CLUSTER_CONSISTENCY_DAYS_MAX = 20      # batas atas slider: 20 hari
+
 # ============================================================
 # DATA OUTPUT
 # ============================================================
