@@ -250,6 +250,39 @@ def cek_big_volume_terakhir(chart_rows, lookback_days, ratio):
     return False
 
 
+def _spread_sma_bar(bar, periods):
+    """Spread (desimal) antar SMA di `periods` untuk satu bar candle. None kalau data kurang."""
+    vals = []
+    for p in periods:
+        v = bar.get(f"SMA{p}")
+        if v is None:
+            return None
+        vals.append(v)
+    mid = sum(vals) / len(vals)
+    if mid == 0:
+        return None
+    return (max(vals) - min(vals)) / mid
+
+
+def cek_clustering_konsisten(chart_rows, consistency_days, tol_pct):
+    """
+    Cek apakah SMA3/5/10/20 sudah rapat (spread <= tol_pct) SECARA KONSISTEN
+    selama `consistency_days` hari terakhir berturut-turut -- bukan cuma
+    snapshot hari ini. Ini yang bikin chart-nya kelihatan "rapi" seperti contoh
+    TradingView (pita SMA nempel beberapa hari), bukan cuma nyentuh sesaat lalu
+    mencar lagi.
+    Return False kalau data candle kurang dari `consistency_days` hari.
+    """
+    if not chart_rows or len(chart_rows) < consistency_days:
+        return False
+    tol = tol_pct / 100.0
+    for bar in chart_rows[-consistency_days:]:
+        spread = _spread_sma_bar(bar, [3, 5, 10, 20])
+        if spread is None or spread > tol:
+            return False
+    return True
+
+
 # ============================================================
 # CHART
 # ============================================================
@@ -331,7 +364,7 @@ def render_chart(candles, visible_smas):
 # BARIS HASIL (ringkas + detail saat expand)
 # ============================================================
 @st.fragment
-def render_result_row(row, charts, sma20_tol_pct, big_vol_days, big_vol_ratio):
+def render_result_row(row, charts, sma20_tol_pct, big_vol_days, big_vol_ratio, cluster_consistency_days):
     info = CATEGORY_INFO[row["Setup"]]
     tp_pct = row.get("TP_Pot_pct")
     tp_class = "tp-pos" if (tp_pct or 0) >= 0 else "tp-neg"
@@ -340,6 +373,11 @@ def render_result_row(row, charts, sma20_tol_pct, big_vol_days, big_vol_ratio):
     spread4 = row.get("SMA20_Cluster4_Spread_pct")
     is_ketat = row["Setup"] == "1" and spread4 is not None and spread4 <= sma20_tol_pct
     ketat_html = "<span class='tag-ketat'>SMA20 Ketat</span>" if is_ketat else ""
+
+    is_konsisten = row["Setup"] == "1" and cek_clustering_konsisten(
+        charts.get(row["Ticker"]), cluster_consistency_days, sma20_tol_pct
+    )
+    konsisten_html = "<span class='tag-ketat'>Rapi & Konsisten</span>" if is_konsisten else ""
 
     is_bigvol = row["Setup"] == "1" and cek_big_volume_terakhir(
         charts.get(row["Ticker"]), big_vol_days, big_vol_ratio
@@ -352,7 +390,7 @@ def render_result_row(row, charts, sma20_tol_pct, big_vol_days, big_vol_ratio):
         st.markdown(f"<span class='rank'>{row['rank']}</span>", unsafe_allow_html=True)
     with c2:
         st.markdown(
-            f"<span class='ticker'>{row['Ticker']}</span>{new_html}{ketat_html}{bigvol_html}",
+            f"<span class='ticker'>{row['Ticker']}</span>{new_html}{ketat_html}{konsisten_html}{bigvol_html}",
             unsafe_allow_html=True,
         )
     with c3:
@@ -489,6 +527,20 @@ def main():
         "0% = SMA20 nyaris nempel persis di SMA3/5/10.",
     )
 
+    filter_cluster_consisten = st.sidebar.checkbox("Clustering rapi & konsisten", value=False)
+    cluster_consistency_days = st.sidebar.slider(
+        "Bertahan rapat berapa hari terakhir",
+        min_value=config.CLUSTER_CONSISTENCY_DAYS_MIN,
+        max_value=config.CLUSTER_CONSISTENCY_DAYS_MAX,
+        value=config.CLUSTER_CONSISTENCY_DAYS,
+        step=1,
+        disabled=not filter_cluster_consisten,
+        help="Pakai toleransi spread yang sama dengan slider di atas, tapi harus rapat "
+        "SETIAP HARI selama N hari terakhir berturut-turut -- bukan cuma hari ini. "
+        "Ini yang bikin chart-nya kelihatan rapi/nempel seperti contoh, bukan cuma "
+        "nyentuh sesaat lalu mencar lagi.",
+    )
+
     filter_big_vol_history = st.sidebar.checkbox("Pernah big volume", value=False)
     big_vol_days = st.sidebar.slider(
         "Cek berapa hari terakhir",
@@ -542,6 +594,11 @@ def main():
             or (r.get("SMA20_Cluster4_Spread_pct") is not None and r["SMA20_Cluster4_Spread_pct"] <= sma20_tol_pct)
         )
         and (
+            not filter_cluster_consisten
+            or r["Setup"] != "1"
+            or cek_clustering_konsisten(charts.get(r["Ticker"]), cluster_consistency_days, sma20_tol_pct)
+        )
+        and (
             not filter_big_vol_history
             or r["Setup"] != "1"
             or cek_big_volume_terakhir(charts.get(r["Ticker"]), big_vol_days, big_vol_ratio)
@@ -562,7 +619,7 @@ def main():
     show_list = filtered if n_show == "Semua" else filtered[: int(n_show)]
 
     for row in show_list:
-        render_result_row(row, charts, sma20_tol_pct, big_vol_days, big_vol_ratio)
+        render_result_row(row, charts, sma20_tol_pct, big_vol_days, big_vol_ratio, cluster_consistency_days)
 
     if n_show != "Semua" and len(filtered) > int(n_show):
         st.markdown(
