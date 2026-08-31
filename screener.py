@@ -3,6 +3,8 @@ Logic screening saham -- porting 1:1 dari notebook screener_v2_updated.ipynb
 Setup 1: Base / Re-Akumulasi
 Setup 2: Bounce SMA Besar
 Setup 3: Downtrend + Volume Signifikan
+Setup 4: Post-IPO 4H (sama logic Setup 1, MA112/224/448 -- untuk saham yang
+         belum punya histori panjang untuk MA60/100/200 klasik)
 
 Perbedaan vs notebook:
 - Tidak ada bagian Intraday 1 menit (sengaja dihilangkan, sesuai keputusan).
@@ -11,6 +13,8 @@ Perbedaan vs notebook:
 - Download pakai session `curl_cffi` (impersonate browser Chrome) + retry & backoff,
   supaya tahan terhadap rate-limit Yahoo Finance yang sering terjadi di server
   datacenter seperti GitHub Actions (lihat catatan di run_screener.py).
+- Daftar ticker & tanggal IPO diambil live dari IDX (idx_emiten.py), dipakai
+  untuk label "Post-IPO age" di semua setup dan sebagai basis Setup 4.
 """
 
 import random
@@ -55,9 +59,11 @@ def download_daily(
     pause=3.0,
     max_retries=3,
     progress_cb=None,
+    period=None,
 ):
     """
-    Download OHLCV daily untuk semua ticker, hitung semua SMA.
+    Download OHLCV daily untuk semua ticker, hitung semua SMA (termasuk
+    MA112/224/448 untuk Setup 4 post-IPO).
 
     Strategi anti-rate-limit:
     - batch kecil (default 25 ticker/batch, bukan 80) supaya tiap request
@@ -67,10 +73,21 @@ def download_daily(
       (indikasi kena rate-limit 429 / blocked sesaat).
     - delay antar batch (default 3 detik) supaya tidak membombardir Yahoo.
 
+    `period`: rentang download yfinance (default config.YF_PERIOD = "5y").
+    Diperpanjang dari "2y" semula supaya MA448 (Setup 4) bisa terbentuk.
+
     Return dict {ticker_tanpa_jk: DataFrame}.
     """
     data = {}
-    all_periods = config.SMA_KECIL + config.SMA_PENGGIRING + config.SMA_BESAR
+    period = period or config.YF_PERIOD
+    all_periods = (
+        config.SMA_KECIL
+        + config.SMA_PENGGIRING
+        + config.SMA_BESAR
+        + config.SMA_KECIL_POST_IPO
+        + config.SMA_PENGGIRING_POST_IPO
+        + config.SMA_BESAR_POST_IPO
+    )
     session = make_session()
 
     total = len(tickers)
@@ -85,7 +102,7 @@ def download_daily(
             try:
                 raw = yf.download(
                     batch,
-                    period="2y",
+                    period=period,
                     interval="1d",
                     progress=False,
                     auto_adjust=True,
@@ -228,6 +245,46 @@ def find_nearest_sma_besar_above(row, price):
     if not candidates:
         return None, None
     return min(candidates, key=lambda x: x[1])
+
+
+def find_nearest_sma_above_periods(row, price, periods):
+    """Versi generic find_nearest_sma_besar_above -- terima list period custom
+    (dipakai Setup 4 dengan config.SMA_BESAR_POST_IPO)."""
+    candidates = []
+    for p in periods:
+        val = row.get(f"SMA{p}", np.nan)
+        if not np.isnan(val) and val > price:
+            candidates.append((p, val))
+    if not candidates:
+        return None, None
+    return min(candidates, key=lambda x: x[1])
+
+
+def post_ipo_mepet(row):
+    """
+    Analog sma_kecil_mepet(), tapi untuk Setup 4 (post-IPO). Karena cuma ada
+    SATU "SMA kecil" (MA112, bukan cluster 3/5/10), kriterianya:
+    - Close harus >= MA112 (posisi di atas trigger, sama semangat Setup 1)
+    - Gap MA112 <-> MA224 harus dalam toleransi (analog SMA20_TOL_MAHAL/MURAH)
+    """
+    p_kecil = config.SMA_KECIL_POST_IPO[0]
+    p_penggiring = config.SMA_PENGGIRING_POST_IPO[0]
+
+    sma_kecil = row.get(f"SMA{p_kecil}", np.nan)
+    sma_penggiring = row.get(f"SMA{p_penggiring}", np.nan)
+    if np.isnan(sma_kecil) or np.isnan(sma_penggiring):
+        return False
+
+    close = row["Close"]
+    if close < sma_kecil:
+        return False
+
+    tol = config.POST_IPO_TOL_MAHAL if close >= 500 else config.POST_IPO_TOL_MURAH
+    gap = abs(sma_penggiring - sma_kecil) / sma_kecil if sma_kecil != 0 else np.nan
+    if np.isnan(gap) or gap > tol:
+        return False
+
+    return True
 
 
 # ============================================================
@@ -418,6 +475,77 @@ def screen_setup3(daily_data):
 
 
 # ============================================================
+# SETUP 4 -- POST-IPO 4H (sama semangat Setup 1, MA112/224/448)
+# ============================================================
+def screen_setup4(daily_data, listing_dates=None):
+    """
+    Sama logic dengan Setup 1 (clustering + target profit di SMA besar),
+    tapi pakai MA112 (kecil) / MA224 (penggiring) / MA448 (besar) supaya
+    cocok untuk saham yang belum lama IPO dan belum punya cukup histori
+    untuk MA60/100/200 klasik.
+
+    `listing_dates`: dict {ticker: datetime|None} dari idx_emiten.py. Kalau
+    diisi, hasil dibatasi ke saham yang umur listingnya <= POST_IPO_MAX_AGE_DAYS
+    (saham "established" cukup discreen lewat Setup 1 biasa). Kalau None /
+    listing date tidak diketahui untuk suatu ticker, ticker tetap di-screen
+    (tidak difilter out) -- filter umur cuma jalan kalau datanya ada.
+    """
+    listing_dates = listing_dates or {}
+    results = []
+    p_besar = config.SMA_BESAR_POST_IPO[0]
+
+    for tkr, df in daily_data.items():
+        min_bars = max(config.SMA_BESAR_POST_IPO) + 5
+        if len(df) < min_bars:
+            continue
+
+        ld = listing_dates.get(tkr)
+        if ld is not None:
+            age_days = (datetime.now() - ld).days
+            if age_days > config.POST_IPO_MAX_AGE_DAYS:
+                continue
+
+        row = latest(df)
+        close = row["Close"]
+
+        if not post_ipo_mepet(row):
+            continue
+
+        tp_val_raw = row.get(f"SMA{p_besar}", np.nan)
+        if np.isnan(tp_val_raw) or tp_val_raw <= close:
+            continue
+        tp_val = tp_val_raw
+
+        sma_kecil = row.get(f"SMA{config.SMA_KECIL_POST_IPO[0]}", np.nan)
+        sma_penggiring = row.get(f"SMA{config.SMA_PENGGIRING_POST_IPO[0]}", np.nan)
+
+        gap_to_tp = (tp_val - sma_penggiring) / sma_penggiring if sma_penggiring else np.nan
+        if np.isnan(gap_to_tp) or gap_to_tp < config.POST_IPO_TO_TP_MIN:
+            continue
+
+        tp_pct = pct_gap(tp_val, close)
+        gap_pct = abs((sma_penggiring - sma_kecil) / sma_kecil) * 100 if sma_kecil else np.nan
+
+        results.append(
+            {
+                "Ticker": tkr,
+                "Close": round(close, 0),
+                f"SMA{config.SMA_KECIL_POST_IPO[0]}": round(sma_kecil, 0) if not np.isnan(sma_kecil) else None,
+                f"SMA{config.SMA_PENGGIRING_POST_IPO[0]}": round(sma_penggiring, 0) if not np.isnan(sma_penggiring) else None,
+                f"SMA{p_besar}": round(tp_val, 0),
+                "Gap_Cluster_pct": round(gap_pct, 2) if not np.isnan(gap_pct) else None,
+                "Gap_ke_TP_pct": round(gap_to_tp * 100, 2),
+                "TP_Target": f"SMA{p_besar}",
+                "TP_Val": round(tp_val, 0),
+                "TP_Pot_pct": round(tp_pct * 100, 2),
+                "Setup": "4",
+                "Setup_Label": "Post-IPO 4H",
+            }
+        )
+    return results
+
+
+# ============================================================
 # CANDLE DATA UNTUK CHART (60 bar terakhir + SMA + volume)
 # ============================================================
 def extract_chart_data(df, n=90):
@@ -426,7 +554,17 @@ def extract_chart_data(df, n=90):
     tail = tail.reset_index()
     date_col = tail.columns[0]
     out = []
-    sma_cols = [f"SMA{p}" for p in (config.SMA_KECIL + config.SMA_PENGGIRING + config.SMA_BESAR)]
+    sma_cols = [
+        f"SMA{p}"
+        for p in (
+            config.SMA_KECIL
+            + config.SMA_PENGGIRING
+            + config.SMA_BESAR
+            + config.SMA_KECIL_POST_IPO
+            + config.SMA_PENGGIRING_POST_IPO
+            + config.SMA_BESAR_POST_IPO
+        )
+    ]
     for _, r in tail.iterrows():
         rec = {
             "date": pd.Timestamp(r[date_col]).strftime("%Y-%m-%d"),
