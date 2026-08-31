@@ -2,18 +2,16 @@
 Konfigurasi screener saham IHSG.
 Parameter di sini SAMA PERSIS dengan notebook screener_v2_updated.ipynb
 (Setup 1, Setup 2, Setup 3 -- daily only, tanpa intraday 1m), ditambah
-Setup 4 (Post-IPO 4H) dan dukungan daftar emiten dinamis dari IDX.
+Setup 4 (Post-IPO 4H).
 """
 
 # ============================================================
-# DAFTAR TICKER IHSG -- SEED / FALLBACK STATIS
+# DAFTAR TICKER IHSG
 # ============================================================
-# List ini adalah SEED/FALLBACK saja. Daftar ticker yang benar-benar dipakai
-# saat run (TICKERS_YF di bawah) di-refresh live dari endpoint resmi IDX oleh
-# idx_emiten.py setiap kali run_screener.py dijalankan -- termasuk emiten baru
-# yang belum ada di list statis ini. List statis ini cuma dipakai sebagai
-# fallback kalau fetch live ke IDX gagal DAN tidak ada cache lokal sama sekali
-# (lihat idx_emiten.get_emiten_list()).
+# Daftar ticker statis, dipakai langsung sebagai TICKERS_YF di bawah.
+# (Sempat direncanakan fetch live dari idx.co.id, tapi dibatalkan --
+# lihat catatan di bagian "DAFTAR EMITEN & LABEL POST-IPO" di bawah.)
+# Untuk menambah emiten baru: tambahkan kode tickernya ke list ini.
 SAHAM_IHSG_SEED = [
     'BRPT', 'TPIA', 'BREN', 'CUAN', 'PTRO', 'SULI', 'MCOL', 'CDIA',
     'RAJA', 'RATU', 'SINI', 'CBRE', 'MINA', 'PSKT', 'PADI', 'BUVA',
@@ -138,9 +136,9 @@ SAHAM_IHSG_SEED = [
 # config.SAHAM_IHSG (mis. notebook lama) tidak patah.
 SAHAM_IHSG = SAHAM_IHSG_SEED
 
-# NOTE: TICKERS_YF di bawah adalah fallback statis (dari seed di atas).
-# run_screener.py akan menimpa daftar emiten yang benar-benar dipakai dengan
-# hasil live dari idx_emiten.get_emiten_list() -- lihat EMITEN_LIST di sana.
+# Daftar ticker (format yfinance, dengan suffix ".JK") yang benar-benar
+# dipakai run_screener.py -- langsung dari SAHAM_IHSG_SEED, tidak ada
+# fetch/override dari sumber lain.
 TICKERS_YF = [t + ".JK" for t in SAHAM_IHSG_SEED]
 
 # ============================================================
@@ -234,7 +232,14 @@ POST_IPO_MAX_AGE_DAYS = 2200
 # ============================================================
 # DAFTAR EMITEN & LABEL POST-IPO
 # ============================================================
-EMITEN_CACHE_FILE = "data/emiten_idx.json"
+# NOTE: sebelumnya di sini ada rencana fetch daftar emiten + tanggal IPO
+# resmi langsung dari idx.co.id. Itu DIBATALKAN -- endpoint publik idx.co.id
+# diblokir Cloudflare/WAF untuk request dari IP datacenter (termasuk runner
+# GitHub Actions), dan riset menunjukkan itu perlu headless browser sungguhan
+# untuk ditembus (di luar scope yang wajar untuk automasi ringan begini).
+# Sebagai gantinya: daftar ticker tetap statis (SAHAM_IHSG_SEED di atas),
+# dan label "Post-IPO age" diestimasi dari histori harga itu sendiri
+# (lihat listing_age.py) -- tanpa fetch eksternal sama sekali.
 
 # ============================================================
 # DATA OUTPUT
