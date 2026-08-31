@@ -148,12 +148,12 @@ SMA_KECIL = [3, 5, 10]            # SMA kecil / trigger
 SMA_PENGGIRING = [20]             # SMA penggiring
 SMA_BESAR = [60, 100, 200]        # SMA besar / level support-resistance
 
-# Setup 4 "Post-IPO 4H" -- sama logic clustering seperti Setup 1, tapi pakai
-# MA yang jauh lebih besar (112/224/448 hari) supaya sensitif untuk saham
-# yang baru IPO dan belum punya histori panjang untuk MA60/100/200 klasik.
-SMA_KECIL_POST_IPO = [112]        # "SMA kecil" versi post-IPO -- dipakai sbg trigger tunggal
-SMA_PENGGIRING_POST_IPO = [224]   # "SMA penggiring" versi post-IPO
-SMA_BESAR_POST_IPO = [448]        # "SMA besar" versi post-IPO (target profit)
+# Setup 4 "Post-IPO 4H" -- BEDA logic dari Setup 1. Saham post-IPO trading di
+# skala harian (mirip area MA20), membentuk Darvas Box (konsolidasi harga).
+# MA besar (112/224/448 hari) berperan sebagai support/resistance dari box
+# itu -- bukan level yang harus didekati Close secara langsung seperti di
+# Setup 1. Lihat SETUP 4 -- DARVAS BOX di bawah untuk parameter lengkap.
+SMA_POST_IPO = [112, 224, 448]    # MA besar versi post-IPO -- kandidat support/resistance box
 
 # ============================================================
 # PARAMETER SCREENING
@@ -212,16 +212,45 @@ CLUSTER_CONSISTENCY_DAYS_MIN = 2       # batas bawah slider: 2 hari
 CLUSTER_CONSISTENCY_DAYS_MAX = 20      # batas atas slider: 20 hari
 
 # ============================================================
-# SETUP 4 -- POST-IPO 4H (sama logic dengan Setup 1, MA112/224/448)
+# SETUP 4 -- POST-IPO 4H (Darvas Box vs MA112/224/448)
 # ============================================================
-# Karena Setup 4 cuma punya SATU SMA "kecil" (MA112, bukan cluster 3/5/10),
-# filter clustering-nya jadi: seberapa dekat Close ke MA112, dan seberapa
-# dekat MA112 ke MA224 (analog SMA20_TOL_MAHAL/MURAH di Setup 1).
-POST_IPO_TOL_MAHAL = 0.50              # 50% -- saham harga >= 500
-POST_IPO_TOL_MURAH = 0.30              # 30% -- saham harga < 500
+# Konsep: saham post-IPO trading harian di skala kecil (mirip area MA20) dan
+# membentuk Darvas Box -- konsolidasi harga dalam rentang [box_bottom, box_top].
+# MA besar (112/224/448) dicek seberapa dekat ke box_top ATAU box_bottom --
+# kalau salah satu sisi box berhimpit dengan salah satu MA itu, MA tsb
+# berperan sebagai support (kalau box_bottom yang dekat) atau resistance
+# (kalau box_top yang dekat) dari box tersebut.
+#
+# Definisi box (Darvas klasik, disederhanakan menjadi dua periode):
+# - "Box period" (DARVAS_BOX_LOOKBACK_DAYS hari terakhir): dipakai menghitung
+#   box_top/box_bottom KESELURUHAN window ini.
+# - "Confirmation period" (DARVAS_CONFIRMATION_DAYS hari PALING TERAKHIR,
+#   subset dari box period): box dianggap VALID kalau extremes (box_top/
+#   box_bottom) itu terbentuk di bagian box period SEBELUM confirmation
+#   period -- yaitu confirmation period sendiri tidak membuat high/low baru.
+#   Ini artinya harga sudah "tenang"/terkurung beberapa hari terakhir, bukan
+#   masih pada momen membuat rekor tinggi/rendah baru (masih trending).
 
-# Gap minimum MA224 -> MA448 (target profit), analog SMA20_TO_SMABT_MIN
-POST_IPO_TO_TP_MIN = 0.08              # 8% gap minimum
+# Lookback Darvas Box (slider di web) -- total hari yang dipakai menghitung
+# box_top/box_bottom.
+DARVAS_BOX_LOOKBACK_DAYS = 20          # default slider: 20 hari
+DARVAS_BOX_LOOKBACK_DAYS_MIN = 5       # batas bawah slider: 5 hari
+DARVAS_BOX_LOOKBACK_DAYS_MAX = 60      # batas atas slider: 60 hari
+
+# Confirmation period (slider di web, terpisah dari lookback di atas) --
+# berapa hari PALING TERAKHIR yang harus sudah "tenang" (tidak membuat
+# high/low baru dibanding sisa box period sebelumnya) supaya box dianggap
+# valid/matang, bukan masih dalam proses membentuk box.
+DARVAS_CONFIRMATION_DAYS = 3           # default slider: 3 hari
+DARVAS_CONFIRMATION_DAYS_MIN = 2       # batas bawah slider: 2 hari
+DARVAS_CONFIRMATION_DAYS_MAX = 10      # batas atas slider: 10 hari
+
+# Toleransi jarak (persen) box_top/box_bottom ke MA post-IPO terdekat, supaya
+# dianggap "berhimpit" (MA itu jadi support/resistance box). Slider di web --
+# angka ini cuma default posisi slider.
+DARVAS_MA_TOLERANCE = 0.05             # default slider: 5%
+DARVAS_MA_TOLERANCE_MIN = 0.01         # batas bawah slider: 1% (sangat ketat)
+DARVAS_MA_TOLERANCE_MAX = 0.15         # batas atas slider: 15% (longgar)
 
 # Umur listing MAKSIMUM (dalam hari) supaya saham dianggap "post-IPO" dan
 # masuk ke Setup 4. Di atas ini, saham dianggap "established" dan cukup
