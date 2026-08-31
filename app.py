@@ -2,8 +2,9 @@
 Dashboard Screener Saham IHSG -- Streamlit
 Menampilkan hasil screening (Potential 4H / Potential 3M / Big Vol / Post-IPO 4H)
 yang sudah disiapkan oleh run_screener.py (dijalankan otomatis lewat GitHub Actions
-tiap market close). Daftar emiten & tanggal IPO diambil live dari IDX setiap run,
-jadi jumlah total saham yang terdaftar bisa berubah dari hari ke hari.
+tiap market close). Label "Post-IPO age" diestimasi dari histori harga itu sendiri
+(bar paling awal yang datanya ada), bukan dari tanggal IPO resmi -- lihat catatan
+di listing_age.py.
 
 Desain:
 - Minimalis, monokrom, tanpa emoji/sticker -- gaya bersih ala Perplexity.
@@ -461,9 +462,11 @@ def render_result_row(row, charts, sma20_tol_pct, big_vol_days, big_vol_ratio, c
                 st.write(f"Target: {row['TP_Target']} = Rp {format_rupiah(row['TP_Val'])}")
 
             if row.get("Post_IPO_Label"):
-                listing_date = row.get("Listing_Date")
-                tanggal_txt = f" (listing {listing_date})" if listing_date else ""
-                st.write(f"Umur listing: {row['Post_IPO_Label']}{tanggal_txt}")
+                listing_date = row.get("Listing_Date_Estimasi")
+                is_estimate = row.get("Post_IPO_Is_Estimate")
+                tanggal_txt = f" (data sejak {listing_date})" if listing_date else ""
+                catatan = " -- estimasi minimum, bukan tanggal IPO pasti" if is_estimate else ""
+                st.write(f"Umur listing: {row['Post_IPO_Label']}{tanggal_txt}{catatan}")
 
             st.markdown("<br>", unsafe_allow_html=True)
             sma_options = [
