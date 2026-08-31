@@ -1,12 +1,14 @@
 """
 Script utama -- dijalankan oleh GitHub Actions tiap hari setelah market close.
-1. Download data semua ticker.
-2. Jalankan Setup 1, 2, 3.
-3. Gabungkan semua hasil, urutkan dari TP_Pot_pct terbesar -> terkecil.
-4. Bandingkan dengan hasil run sebelumnya -> tandai is_new.
-5. Simpan candle chart (90 bar) untuk tiap ticker yang lolos screening (biar ringan,
-   tidak semua 931 ticker disimpan candle-nya).
-6. Simpan ke data/latest_result.json + arsip ke data/history/.
+1. Fetch daftar emiten terbaru + tanggal IPO/listing dari IDX (idx_emiten.py).
+2. Download data semua ticker (histori 5 tahun -- lihat config.YF_PERIOD).
+3. Jalankan Setup 1, 2, 3, 4 (Setup 4 = Post-IPO 4H, MA112/224/448).
+4. Tempel label umur listing ("Post-IPO age") ke setiap hasil.
+5. Gabungkan semua hasil, urutkan dari TP_Pot_pct terbesar -> terkecil.
+6. Bandingkan dengan hasil run sebelumnya -> tandai is_new.
+7. Simpan candle chart (90 bar) untuk tiap ticker yang lolos screening (biar ringan,
+   tidak semua ticker disimpan candle-nya).
+8. Simpan ke data/latest_result.json + arsip ke data/history/.
 """
 
 import json
@@ -15,6 +17,7 @@ import sys
 from datetime import datetime
 
 import config
+import idx_emiten
 import screener
 
 
@@ -29,17 +32,17 @@ def progress_cb(i, total, batch):
 def load_previous_tickers():
     """Ambil set ticker per setup dari hasil run sebelumnya, untuk deteksi 'penghuni baru'."""
     if not os.path.exists(config.LATEST_RESULT_FILE):
-        return {"1": set(), "2": set(), "3": set()}
+        return {"1": set(), "2": set(), "3": set(), "4": set()}
     try:
         with open(config.LATEST_RESULT_FILE, "r") as f:
             prev = json.load(f)
-        sets = {"1": set(), "2": set(), "3": set()}
+        sets = {"1": set(), "2": set(), "3": set(), "4": set()}
         for row in prev.get("results", []):
-            sets[row["Setup"]].add(row["Ticker"])
+            sets.setdefault(row["Setup"], set()).add(row["Ticker"])
         return sets
     except Exception as e:
         log(f"Gagal load hasil sebelumnya: {e}")
-        return {"1": set(), "2": set(), "3": set()}
+        return {"1": set(), "2": set(), "3": set(), "4": set()}
 
 
 def main():
@@ -49,18 +52,25 @@ def main():
 
     prev_tickers = load_previous_tickers()
 
-    log(f"Total ticker yang akan di-download: {len(config.TICKERS_YF)}")
+    # --- Fetch daftar emiten terbaru + tanggal IPO dari IDX (dengan fallback) ---
+    log("Mengambil daftar emiten terbaru dari IDX ...")
+    emiten_list = idx_emiten.get_emiten_list(config.SAHAM_IHSG_SEED, log=log)
+    tickers_yf = [e["code"] + ".JK" for e in emiten_list]
+    listing_dates = {e["code"]: e["listing_date"] for e in emiten_list}
+    log(f"Total emiten yang akan di-screen: {len(tickers_yf)}")
+
     daily_data = screener.download_daily(
-        config.TICKERS_YF,
+        tickers_yf,
         lookback=config.LOOKBACK_DAILY,
         batch_size=25,
         pause=3.0,
         max_retries=3,
         progress_cb=progress_cb,
+        period=config.YF_PERIOD,
     )
-    log(f"Berhasil download {len(daily_data)} / {len(config.TICKERS_YF)} ticker.")
+    log(f"Berhasil download {len(daily_data)} / {len(tickers_yf)} ticker.")
 
-    success_ratio = len(daily_data) / len(config.TICKERS_YF)
+    success_ratio = len(daily_data) / len(tickers_yf)
     if len(daily_data) == 0:
         log("FATAL: tidak ada data yang berhasil di-download (kemungkinan rate-limited Yahoo Finance). Berhenti.")
         sys.exit(1)
@@ -83,7 +93,19 @@ def main():
     r3 = screener.screen_setup3(daily_data)
     log(f"  -> {len(r3)} kandidat")
 
-    all_results = r1 + r2 + r3
+    log("Menjalankan Setup 4 (Post-IPO 4H) ...")
+    r4 = screener.screen_setup4(daily_data, listing_dates=listing_dates)
+    log(f"  -> {len(r4)} kandidat")
+
+    all_results = r1 + r2 + r3 + r4
+
+    # Tempel label umur listing ("Post-IPO age") ke SEMUA hasil, semua setup
+    for row in all_results:
+        ld = listing_dates.get(row["Ticker"])
+        umur = idx_emiten.hitung_umur_listing(ld)
+        row["Listing_Date"] = ld.strftime("%Y-%m-%d") if ld else None
+        row["Post_IPO_Label"] = umur["label"] if umur else "Tidak diketahui"
+        row["Post_IPO_Days"] = umur["days"] if umur else None
 
     # Tandai is_new dibanding hasil run sebelumnya
     for row in all_results:
@@ -114,11 +136,12 @@ def main():
         "generated_at": now.isoformat(),
         "generated_at_display": now.strftime("%d %B %Y, %H:%M WIB"),
         "total_ticker_discan": len(daily_data),
-        "total_ticker_terdaftar": len(config.TICKERS_YF),
+        "total_ticker_terdaftar": len(tickers_yf),
         "summary": {
             "setup1_count": len(r1),
             "setup2_count": len(r2),
             "setup3_count": len(r3),
+            "setup4_count": len(r4),
             "total_count": len(all_results),
             "new_count": sum(1 for r in all_results if r["is_new"]),
         },
