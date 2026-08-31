@@ -1,13 +1,20 @@
 """
 Konfigurasi screener saham IHSG.
 Parameter di sini SAMA PERSIS dengan notebook screener_v2_updated.ipynb
-(Setup 1, Setup 2, Setup 3 -- daily only, tanpa intraday 1m).
+(Setup 1, Setup 2, Setup 3 -- daily only, tanpa intraday 1m), ditambah
+Setup 4 (Post-IPO 4H) dan dukungan daftar emiten dinamis dari IDX.
 """
 
 # ============================================================
-# DAFTAR TICKER IHSG (931 saham unik, dari notebook asli)
+# DAFTAR TICKER IHSG -- SEED / FALLBACK STATIS
 # ============================================================
-SAHAM_IHSG = [
+# List ini adalah SEED/FALLBACK saja. Daftar ticker yang benar-benar dipakai
+# saat run (TICKERS_YF di bawah) di-refresh live dari endpoint resmi IDX oleh
+# idx_emiten.py setiap kali run_screener.py dijalankan -- termasuk emiten baru
+# yang belum ada di list statis ini. List statis ini cuma dipakai sebagai
+# fallback kalau fetch live ke IDX gagal DAN tidak ada cache lokal sama sekali
+# (lihat idx_emiten.get_emiten_list()).
+SAHAM_IHSG_SEED = [
     'BRPT', 'TPIA', 'BREN', 'CUAN', 'PTRO', 'SULI', 'MCOL', 'CDIA',
     'RAJA', 'RATU', 'SINI', 'CBRE', 'MINA', 'PSKT', 'PADI', 'BUVA',
     'UANG', 'ARCI', 'FORU', 'CITA', 'SUGI', 'BRMS', 'ENRG', 'BUMI',
@@ -127,7 +134,14 @@ SAHAM_IHSG = [
     'STRK', 'TRAM', 'TRIL',
 ]
 
-TICKERS_YF = [t + ".JK" for t in SAHAM_IHSG]
+# Alias lama, dipertahankan supaya kode lain yang masih mereferensikan
+# config.SAHAM_IHSG (mis. notebook lama) tidak patah.
+SAHAM_IHSG = SAHAM_IHSG_SEED
+
+# NOTE: TICKERS_YF di bawah adalah fallback statis (dari seed di atas).
+# run_screener.py akan menimpa daftar emiten yang benar-benar dipakai dengan
+# hasil live dari idx_emiten.get_emiten_list() -- lihat EMITEN_LIST di sana.
+TICKERS_YF = [t + ".JK" for t in SAHAM_IHSG_SEED]
 
 # ============================================================
 # PARAMETER SMA
@@ -136,10 +150,20 @@ SMA_KECIL = [3, 5, 10]            # SMA kecil / trigger
 SMA_PENGGIRING = [20]             # SMA penggiring
 SMA_BESAR = [60, 100, 200]        # SMA besar / level support-resistance
 
+# Setup 4 "Post-IPO 4H" -- sama logic clustering seperti Setup 1, tapi pakai
+# MA yang jauh lebih besar (112/224/448 hari) supaya sensitif untuk saham
+# yang baru IPO dan belum punya histori panjang untuk MA60/100/200 klasik.
+SMA_KECIL_POST_IPO = [112]        # "SMA kecil" versi post-IPO -- dipakai sbg trigger tunggal
+SMA_PENGGIRING_POST_IPO = [224]   # "SMA penggiring" versi post-IPO
+SMA_BESAR_POST_IPO = [448]        # "SMA besar" versi post-IPO (target profit)
+
 # ============================================================
 # PARAMETER SCREENING
 # ============================================================
-LOOKBACK_DAILY = 250              # hari historis daily yang di-download
+LOOKBACK_DAILY = 250              # hari historis daily minimum yang dianggap valid
+YF_PERIOD = "5y"                  # rentang download yfinance -- diperpanjang dari 2y ke 5y
+                                   # supaya MA448 (Setup 4) bisa terbentuk & first-trade-date
+                                   # (fallback umur listing) lebih akurat untuk saham 2-5th lalu
 
 # Setup 1 -- spread maks antar SMA3, SMA5, SMA10 (melilit satu sama lain)
 SMA_CLUSTER_TOLERANCE = 0.25      # 25% spread maks antar SMA kecil
@@ -188,6 +212,29 @@ BIG_VOLUME_LOOKBACK_DAYS_MAX = 30     # batas atas slider: 30 hari
 CLUSTER_CONSISTENCY_DAYS = 5           # default slider: 5 hari
 CLUSTER_CONSISTENCY_DAYS_MIN = 2       # batas bawah slider: 2 hari
 CLUSTER_CONSISTENCY_DAYS_MAX = 20      # batas atas slider: 20 hari
+
+# ============================================================
+# SETUP 4 -- POST-IPO 4H (sama logic dengan Setup 1, MA112/224/448)
+# ============================================================
+# Karena Setup 4 cuma punya SATU SMA "kecil" (MA112, bukan cluster 3/5/10),
+# filter clustering-nya jadi: seberapa dekat Close ke MA112, dan seberapa
+# dekat MA112 ke MA224 (analog SMA20_TOL_MAHAL/MURAH di Setup 1).
+POST_IPO_TOL_MAHAL = 0.50              # 50% -- saham harga >= 500
+POST_IPO_TOL_MURAH = 0.30              # 30% -- saham harga < 500
+
+# Gap minimum MA224 -> MA448 (target profit), analog SMA20_TO_SMABT_MIN
+POST_IPO_TO_TP_MIN = 0.08              # 8% gap minimum
+
+# Umur listing MAKSIMUM (dalam hari) supaya saham dianggap "post-IPO" dan
+# masuk ke Setup 4. Di atas ini, saham dianggap "established" dan cukup
+# discreen lewat Setup 1/2/3 biasa. Default longgar (~6 tahun) karena histori
+# 5 tahun (YF_PERIOD) sendiri sudah jadi batas alami MA448 bisa terbentuk.
+POST_IPO_MAX_AGE_DAYS = 2200
+
+# ============================================================
+# DAFTAR EMITEN & LABEL POST-IPO
+# ============================================================
+EMITEN_CACHE_FILE = "data/emiten_idx.json"
 
 # ============================================================
 # DATA OUTPUT
