@@ -1,8 +1,9 @@
 """
 Dashboard Screener Saham IHSG -- Streamlit
-Menampilkan hasil screening (Potential 4H / Potential 3M / Big Vol) yang sudah
-disiapkan oleh run_screener.py (dijalankan otomatis lewat GitHub Actions tiap
-market close).
+Menampilkan hasil screening (Potential 4H / Potential 3M / Big Vol / Post-IPO 4H)
+yang sudah disiapkan oleh run_screener.py (dijalankan otomatis lewat GitHub Actions
+tiap market close). Daftar emiten & tanggal IPO diambil live dari IDX setiap run,
+jadi jumlah total saham yang terdaftar bisa berubah dari hari ke hari.
 
 Desain:
 - Minimalis, monokrom, tanpa emoji/sticker -- gaya bersih ala Perplexity.
@@ -143,6 +144,16 @@ hr {{ border-color: {LINE} !important; margin: 0.6rem 0 !important; }}
     font-weight: 600;
     margin-left: 6px;
 }}
+.tag-ipo {{
+    display: inline-block;
+    font-size: 0.66rem;
+    color: {MUTED};
+    background: rgba(255,255,255,0.06);
+    border-radius: 5px;
+    padding: 1px 7px;
+    font-weight: 500;
+    margin-left: 6px;
+}}
 
 .ticker {{
     font-family: 'JetBrains Mono', monospace;
@@ -179,6 +190,10 @@ CATEGORY_INFO = {
         "label": "Big Vol",
         "desc": "Harga di bawah semua SMA, tapi volume tiba-tiba membesar -- ada aktivitas tidak biasa di tengah downtrend.",
     },
+    "4": {
+        "label": "Post-IPO 4H",
+        "desc": "Versi Potential 4H untuk saham yang belum lama IPO -- SMA112 di atas dan dekat SMA224 -- pakai MA112/224/448 karena histori harga belum cukup panjang untuk SMA60/100/200 klasik.",
+    },
 }
 
 SMA_COLORS = {
@@ -189,6 +204,9 @@ SMA_COLORS = {
     "SMA60": "#2fd48c",
     "SMA100": "#9d8cff",
     "SMA200": "#e7e9f5",
+    "SMA112": "#f4a261",
+    "SMA224": "#4cc9f0",
+    "SMA448": "#9d8cff",
 }
 
 
@@ -384,13 +402,16 @@ def render_result_row(row, charts, sma20_tol_pct, big_vol_days, big_vol_ratio, c
     )
     bigvol_html = "<span class='tag-bigvol'>Big Vol</span>" if is_bigvol else ""
 
+    ipo_label = row.get("Post_IPO_Label")
+    ipo_html = f"<span class='tag-ipo'>Listing {ipo_label}</span>" if ipo_label else ""
+
     st.markdown('<div class="row-card">', unsafe_allow_html=True)
     c1, c2, c3, c4, c5 = st.columns([0.5, 1.6, 1.3, 1.2, 1.3])
     with c1:
         st.markdown(f"<span class='rank'>{row['rank']}</span>", unsafe_allow_html=True)
     with c2:
         st.markdown(
-            f"<span class='ticker'>{row['Ticker']}</span>{new_html}{ketat_html}{konsisten_html}{bigvol_html}",
+            f"<span class='ticker'>{row['Ticker']}</span>{new_html}{ketat_html}{konsisten_html}{bigvol_html}{ipo_html}",
             unsafe_allow_html=True,
         )
     with c3:
@@ -430,10 +451,30 @@ def render_result_row(row, charts, sma20_tol_pct, big_vol_days, big_vol_ratio, c
             elif row["Setup"] == "3":
                 st.write(f"Volume hari ini {row['Vol_Ratio']:.2f}x dari rata-rata 20 hari")
                 st.write(f"Resistance terdekat: {row['Resist_Terdekat']} = Rp {format_rupiah(row['Resist_Val'])}")
+            elif row["Setup"] == "4":
+                st.write(
+                    f"SMA112 / SMA224: Rp {format_rupiah(row.get('SMA112'))} / "
+                    f"Rp {format_rupiah(row.get('SMA224'))}"
+                )
+                if row.get("Gap_Cluster_pct") is not None:
+                    st.write(f"Gap SMA112 <-> SMA224: {row['Gap_Cluster_pct']:.1f}%")
+                st.write(f"Target: {row['TP_Target']} = Rp {format_rupiah(row['TP_Val'])}")
+
+            if row.get("Post_IPO_Label"):
+                listing_date = row.get("Listing_Date")
+                tanggal_txt = f" (listing {listing_date})" if listing_date else ""
+                st.write(f"Umur listing: {row['Post_IPO_Label']}{tanggal_txt}")
 
             st.markdown("<br>", unsafe_allow_html=True)
-            sma_options = ["SMA3", "SMA5", "SMA10", "SMA20", "SMA60", "SMA100", "SMA200"]
-            default_sma = ["SMA20", "SMA60", "SMA100", "SMA200"]
+            sma_options = [
+                "SMA3", "SMA5", "SMA10", "SMA20", "SMA60", "SMA100", "SMA200",
+                "SMA112", "SMA224", "SMA448",
+            ]
+            default_sma = (
+                ["SMA112", "SMA224", "SMA448"]
+                if row["Setup"] == "4"
+                else ["SMA20", "SMA60", "SMA100", "SMA200"]
+            )
             visible_smas = st.multiselect(
                 "Garis SMA pada chart",
                 sma_options,
@@ -479,12 +520,13 @@ def main():
     summary = data["summary"]
 
     st.markdown("<br>", unsafe_allow_html=True)
-    m1, m2, m3, m4, m5 = st.columns(5)
+    m1, m2, m3, m4, m5, m6 = st.columns(6)
     m1.metric("Total kandidat", summary["total_count"])
     m2.metric("Baru hari ini", summary["new_count"])
     m3.metric("Potential 4H", summary["setup1_count"])
     m4.metric("Potential 3M", summary["setup2_count"])
     m5.metric("Big Vol", summary["setup3_count"])
+    m6.metric("Post-IPO 4H", summary.get("setup4_count", 0))
 
     st.markdown(
         f"<p style='color:{FAINT};font-size:0.82rem'>Terakhir update: {data['generated_at_display']} &middot; "
@@ -498,8 +540,8 @@ def main():
     st.sidebar.markdown("**Filter**")
     setup_filter = st.sidebar.multiselect(
         "Kategori",
-        options=["1", "2", "3"],
-        default=["1", "2", "3"],
+        options=["1", "2", "3", "4"],
+        default=["1", "2", "3", "4"],
         format_func=lambda s: CATEGORY_INFO[s]["label"],
     )
     only_new = st.sidebar.checkbox("Hanya tampilkan yang baru", value=False)
@@ -562,6 +604,18 @@ def main():
         "volume hari itu minimal 2x rata-rata 20 hari.",
     )
 
+    st.sidebar.markdown("**Filter umur listing (semua kategori)**")
+    max_listing_years = st.sidebar.slider(
+        "Maks. umur listing (tahun)",
+        min_value=0,
+        max_value=30,
+        value=30,
+        step=1,
+        help="Cuma tampilkan saham yang umur listingnya di bawah N tahun. "
+        "Set ke 30 (maksimum) supaya tidak memfilter apa pun. Saham yang "
+        "umur listingnya tidak diketahui tetap ditampilkan.",
+    )
+
     min_tp = st.sidebar.slider("Minimal potential (%)", 0, 100, 0, step=5)
     search = st.sidebar.text_input("Cari ticker", "").upper().strip()
 
@@ -602,6 +656,11 @@ def main():
             not filter_big_vol_history
             or r["Setup"] != "1"
             or cek_big_volume_terakhir(charts.get(r["Ticker"]), big_vol_days, big_vol_ratio)
+        )
+        and (
+            max_listing_years >= 30
+            or r.get("Post_IPO_Days") is None
+            or r["Post_IPO_Days"] <= max_listing_years * 365
         )
     ]
 
