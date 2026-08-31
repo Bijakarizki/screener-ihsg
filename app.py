@@ -193,7 +193,7 @@ CATEGORY_INFO = {
     },
     "4": {
         "label": "Post-IPO 4H",
-        "desc": "Versi Potential 4H untuk saham yang belum lama IPO -- SMA112 di atas dan dekat SMA224 -- pakai MA112/224/448 karena histori harga belum cukup panjang untuk SMA60/100/200 klasik.",
+        "desc": "Saham post-IPO membentuk Darvas Box (konsolidasi harga, belum breakout) dengan salah satu sisi box berhimpit dengan MA112/224/448 -- MA itu berperan sebagai support atau resistance box.",
     },
 }
 
@@ -302,10 +302,98 @@ def cek_clustering_konsisten(chart_rows, consistency_days, tol_pct):
     return True
 
 
+def hitung_darvas_box_dari_chart(chart_rows, lookback_days, confirmation_days):
+    """
+    Versi ringan hitung_darvas_box() (screener.py) yang bekerja dari data
+    chart (list of dict, sudah tersimpan di latest_result.json) -- dipakai
+    supaya slider Darvas Box lookback/confirmation/toleransi di dashboard
+    bisa mem-filter ulang Setup 4 secara live, tanpa perlu re-run screener.py.
+
+    Sama definisi dua-periode dengan versi screener.py: box_top/box_bottom
+    dari seluruh window, valid kalau `confirmation_days` hari PALING TERAKHIR
+    tidak membuat high/low baru dibanding sisa window sebelumnya.
+
+    Return dict {"box_top", "box_bottom", "is_valid"} atau None.
+    """
+    if not chart_rows or len(chart_rows) < lookback_days or confirmation_days >= lookback_days:
+        return None
+    window = chart_rows[-lookback_days:]
+    highs = [b["high"] for b in window if b.get("high") is not None]
+    lows = [b["low"] for b in window if b.get("low") is not None]
+    if len(highs) < lookback_days or len(lows) < lookback_days:
+        return None
+
+    box_top = max(highs)
+    box_bottom = min(lows)
+    if box_top <= box_bottom:
+        return None
+
+    older_part = window[:-confirmation_days]
+    recent_part = window[-confirmation_days:]
+
+    older_highs = [b["high"] for b in older_part if b.get("high") is not None]
+    older_lows = [b["low"] for b in older_part if b.get("low") is not None]
+    if not older_highs or not older_lows:
+        return None
+
+    older_top = max(older_highs)
+    older_bottom = min(older_lows)
+
+    no_new_extreme = (older_top >= box_top - 1e-9) and (older_bottom <= box_bottom + 1e-9)
+    recent_closes = [b["close"] for b in recent_part if b.get("close") is not None]
+    recent_closes_inside = bool(recent_closes) and all(
+        box_bottom <= c <= box_top for c in recent_closes
+    )
+    is_valid = no_new_extreme and recent_closes_inside
+
+    return {"box_top": box_top, "box_bottom": box_bottom, "is_valid": is_valid}
+
+
+def cek_box_dekat_ma_dari_chart(chart_rows, box, tolerance, ma_periods=(112, 224, 448)):
+    """
+    Versi ringan cek_box_dekat_ma_post_ipo() (screener.py), pakai bar
+    terakhir dari data chart untuk nilai SMA saat ini.
+    Return dict match (sama shape dengan versi screener.py) atau None.
+    """
+    if not chart_rows:
+        return None
+    last_bar = chart_rows[-1]
+    best = None
+    for p in ma_periods:
+        ma_val = last_bar.get(f"SMA{p}")
+        if ma_val is None or ma_val <= 0:
+            continue
+        gap_bottom = abs(box["box_bottom"] - ma_val) / ma_val
+        gap_top = abs(box["box_top"] - ma_val) / ma_val
+        if gap_bottom <= gap_top:
+            role, gap = "support", gap_bottom
+        else:
+            role, gap = "resistance", gap_top
+        if gap > tolerance:
+            continue
+        if best is None or gap < best["gap_pct"]:
+            best = {"ma_period": p, "ma_val": ma_val, "role": role, "gap_pct": gap}
+    return best
+
+
+def cek_setup4_darvas_live(chart_rows, lookback_days, tolerance, confirmation_days):
+    """
+    Gabungan hitung_darvas_box_dari_chart() + cek_box_dekat_ma_dari_chart(),
+    dipakai sebagai filter live Setup 4 di sidebar (slider lookback/
+    confirmation/toleransi).
+    Return True kalau box valid DAN ada MA yang berhimpit dalam toleransi.
+    """
+    box = hitung_darvas_box_dari_chart(chart_rows, lookback_days, confirmation_days)
+    if box is None or not box["is_valid"]:
+        return False
+    match = cek_box_dekat_ma_dari_chart(chart_rows, box, tolerance)
+    return match is not None
+
+
 # ============================================================
 # CHART
 # ============================================================
-def render_chart(candles, visible_smas):
+def render_chart(candles, visible_smas, box_lines=None):
     if not candles:
         st.caption("Data chart tidak tersedia untuk ticker ini.")
         return
@@ -340,6 +428,19 @@ def render_chart(candles, visible_smas):
                     name=sma,
                     mode="lines",
                     line=dict(width=1.4, color=SMA_COLORS.get(sma, "#999999")),
+                    yaxis="y1",
+                )
+            )
+
+    if box_lines:
+        for label, val, color in box_lines:
+            fig.add_trace(
+                go.Scatter(
+                    x=[df["date"].iloc[0], df["date"].iloc[-1]],
+                    y=[val, val],
+                    name=label,
+                    mode="lines",
+                    line=dict(width=1.2, color=color, dash="dot"),
                     yaxis="y1",
                 )
             )
@@ -453,12 +554,16 @@ def render_result_row(row, charts, sma20_tol_pct, big_vol_days, big_vol_ratio, c
                 st.write(f"Volume hari ini {row['Vol_Ratio']:.2f}x dari rata-rata 20 hari")
                 st.write(f"Resistance terdekat: {row['Resist_Terdekat']} = Rp {format_rupiah(row['Resist_Val'])}")
             elif row["Setup"] == "4":
+                role_label = "Support" if row.get("MA_Role") == "support" else "Resistance"
                 st.write(
-                    f"SMA112 / SMA224: Rp {format_rupiah(row.get('SMA112'))} / "
-                    f"Rp {format_rupiah(row.get('SMA224'))}"
+                    f"Darvas Box: Rp {format_rupiah(row.get('Box_Bottom'))} - "
+                    f"Rp {format_rupiah(row.get('Box_Top'))} "
+                    f"(lebar {row.get('Box_Range_pct', 0):.1f}%)"
                 )
-                if row.get("Gap_Cluster_pct") is not None:
-                    st.write(f"Gap SMA112 <-> SMA224: {row['Gap_Cluster_pct']:.1f}%")
+                st.write(
+                    f"SMA{row.get('MA_Period')} = Rp {format_rupiah(row.get('MA_Val'))} "
+                    f"berperan sebagai {role_label} box (jarak {row.get('Gap_Box_MA_pct', 0):.1f}%)"
+                )
                 st.write(f"Target: {row['TP_Target']} = Rp {format_rupiah(row['TP_Val'])}")
 
             if row.get("Post_IPO_Label"):
@@ -490,7 +595,13 @@ def render_result_row(row, charts, sma20_tol_pct, big_vol_days, big_vol_ratio, c
                 unsafe_allow_html=True,
             )
 
-        render_chart(charts.get(row["Ticker"]), visible_smas)
+        box_lines = None
+        if row["Setup"] == "4" and row.get("Box_Top") is not None:
+            box_lines = [
+                ("Box Top", row["Box_Top"], "#ffb020"),
+                ("Box Bottom", row["Box_Bottom"], "#ffb020"),
+            ]
+        render_chart(charts.get(row["Ticker"]), visible_smas, box_lines=box_lines)
 
     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -607,6 +718,35 @@ def main():
         "volume hari itu minimal 2x rata-rata 20 hari.",
     )
 
+    st.sidebar.markdown("**Filter khusus Post-IPO 4H (Setup 4)**")
+    darvas_lookback_days = st.sidebar.slider(
+        "Lookback Darvas Box (hari)",
+        min_value=config.DARVAS_BOX_LOOKBACK_DAYS_MIN,
+        max_value=config.DARVAS_BOX_LOOKBACK_DAYS_MAX,
+        value=config.DARVAS_BOX_LOOKBACK_DAYS,
+        step=1,
+        help="Total hari yang dipakai untuk menentukan batas atas/bawah Darvas Box.",
+    )
+    darvas_confirmation_days = st.sidebar.slider(
+        "Hari konfirmasi box (tenang, tanpa rekor baru)",
+        min_value=config.DARVAS_CONFIRMATION_DAYS_MIN,
+        max_value=min(config.DARVAS_CONFIRMATION_DAYS_MAX, darvas_lookback_days - 1),
+        value=min(config.DARVAS_CONFIRMATION_DAYS, darvas_lookback_days - 1),
+        step=1,
+        help="Berapa hari PALING TERAKHIR yang harus sudah tenang (tidak membuat high/low baru "
+        "dibanding sisa lookback sebelumnya) supaya box dianggap matang/valid -- bukan masih "
+        "dalam proses membentuk box.",
+    )
+    darvas_tolerance_pct = st.sidebar.slider(
+        "Toleransi jarak box ke MA (%)",
+        min_value=int(config.DARVAS_MA_TOLERANCE_MIN * 100),
+        max_value=int(config.DARVAS_MA_TOLERANCE_MAX * 100),
+        value=int(config.DARVAS_MA_TOLERANCE * 100),
+        step=1,
+        help="Seberapa dekat batas box (atas atau bawah) harus berhimpit dengan SMA112/224/448 "
+        "supaya SMA itu dianggap jadi support/resistance box. Makin kecil = makin ketat.",
+    )
+
     st.sidebar.markdown("**Filter umur listing (semua kategori)**")
     max_listing_years = st.sidebar.slider(
         "Maks. umur listing (tahun)",
@@ -659,6 +799,13 @@ def main():
             not filter_big_vol_history
             or r["Setup"] != "1"
             or cek_big_volume_terakhir(charts.get(r["Ticker"]), big_vol_days, big_vol_ratio)
+        )
+        and (
+            r["Setup"] != "4"
+            or cek_setup4_darvas_live(
+                charts.get(r["Ticker"]), darvas_lookback_days, darvas_tolerance_pct / 100.0,
+                darvas_confirmation_days,
+            )
         )
         and (
             max_listing_years >= 30
