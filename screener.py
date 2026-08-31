@@ -13,8 +13,11 @@ Perbedaan vs notebook:
 - Download pakai session `curl_cffi` (impersonate browser Chrome) + retry & backoff,
   supaya tahan terhadap rate-limit Yahoo Finance yang sering terjadi di server
   datacenter seperti GitHub Actions (lihat catatan di run_screener.py).
-- Daftar ticker & tanggal IPO diambil live dari IDX (idx_emiten.py), dipakai
-  untuk label "Post-IPO age" di semua setup dan sebagai basis Setup 4.
+- Daftar ticker tetap statis (config.SAHAM_IHSG_SEED). Label "Post-IPO age"
+  diestimasi dari tanggal bar paling awal di histori harga yang sudah
+  didownload (lihat listing_age.py), TANPA fetch ke sumber eksternal lain --
+  endpoint publik idx.co.id ternyata diblokir Cloudflare/WAF untuk request
+  dari IP datacenter seperti GitHub Actions, jadi pendekatan itu ditinggalkan.
 """
 
 import random
@@ -477,20 +480,21 @@ def screen_setup3(daily_data):
 # ============================================================
 # SETUP 4 -- POST-IPO 4H (sama semangat Setup 1, MA112/224/448)
 # ============================================================
-def screen_setup4(daily_data, listing_dates=None):
+def screen_setup4(daily_data):
     """
     Sama logic dengan Setup 1 (clustering + target profit di SMA besar),
     tapi pakai MA112 (kecil) / MA224 (penggiring) / MA448 (besar) supaya
     cocok untuk saham yang belum lama IPO dan belum punya cukup histori
     untuk MA60/100/200 klasik.
 
-    `listing_dates`: dict {ticker: datetime|None} dari idx_emiten.py. Kalau
-    diisi, hasil dibatasi ke saham yang umur listingnya <= POST_IPO_MAX_AGE_DAYS
-    (saham "established" cukup discreen lewat Setup 1 biasa). Kalau None /
-    listing date tidak diketahui untuk suatu ticker, ticker tetap di-screen
-    (tidak difilter out) -- filter umur cuma jalan kalau datanya ada.
+    Filter umur listing dilakukan berdasarkan estimasi dari histori harga itu
+    sendiri (lihat listing_age.py) -- ticker yang histori harganya sudah
+    sepanjang rentang download penuh (config.YF_PERIOD) dianggap "established"
+    dan di-skip dari Setup 4 (cukup discreen lewat Setup 1/2/3 biasa),
+    karena untuk saham lama kita tidak tahu tanggal IPO aslinya.
     """
-    listing_dates = listing_dates or {}
+    import listing_age
+
     results = []
     p_besar = config.SMA_BESAR_POST_IPO[0]
 
@@ -499,11 +503,9 @@ def screen_setup4(daily_data, listing_dates=None):
         if len(df) < min_bars:
             continue
 
-        ld = listing_dates.get(tkr)
-        if ld is not None:
-            age_days = (datetime.now() - ld).days
-            if age_days > config.POST_IPO_MAX_AGE_DAYS:
-                continue
+        umur = listing_age.hitung_umur_listing(df)
+        if umur is not None and umur["days"] > config.POST_IPO_MAX_AGE_DAYS:
+            continue
 
         row = latest(df)
         close = row["Close"]
