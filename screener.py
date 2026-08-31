@@ -3,7 +3,7 @@ Logic screening saham -- porting 1:1 dari notebook screener_v2_updated.ipynb
 Setup 1: Base / Re-Akumulasi
 Setup 2: Bounce SMA Besar
 Setup 3: Downtrend + Volume Signifikan
-Setup 4: Post-IPO 4H (sama logic Setup 1, MA112/224/448 -- untuk saham yang
+Setup 4: Post-IPO 4H (Darvas Box vs MA112/224/448 -- untuk saham yang
          belum punya histori panjang untuk MA60/100/200 klasik)
 
 Perbedaan vs notebook:
@@ -87,9 +87,7 @@ def download_daily(
         config.SMA_KECIL
         + config.SMA_PENGGIRING
         + config.SMA_BESAR
-        + config.SMA_KECIL_POST_IPO
-        + config.SMA_PENGGIRING_POST_IPO
-        + config.SMA_BESAR_POST_IPO
+        + config.SMA_POST_IPO
     )
     session = make_session()
 
@@ -250,44 +248,103 @@ def find_nearest_sma_besar_above(row, price):
     return min(candidates, key=lambda x: x[1])
 
 
-def find_nearest_sma_above_periods(row, price, periods):
-    """Versi generic find_nearest_sma_besar_above -- terima list period custom
-    (dipakai Setup 4 dengan config.SMA_BESAR_POST_IPO)."""
-    candidates = []
-    for p in periods:
-        val = row.get(f"SMA{p}", np.nan)
-        if not np.isnan(val) and val > price:
-            candidates.append((p, val))
-    if not candidates:
-        return None, None
-    return min(candidates, key=lambda x: x[1])
-
-
-def post_ipo_mepet(row):
+def hitung_darvas_box(df, lookback_days, confirmation_days=None):
     """
-    Analog sma_kecil_mepet(), tapi untuk Setup 4 (post-IPO). Karena cuma ada
-    SATU "SMA kecil" (MA112, bukan cluster 3/5/10), kriterianya:
-    - Close harus >= MA112 (posisi di atas trigger, sama semangat Setup 1)
-    - Gap MA112 <-> MA224 harus dalam toleransi (analog SMA20_TOL_MAHAL/MURAH)
+    Hitung Darvas Box dari `lookback_days` hari terakhir di `df`, dengan
+    validasi dua-periode ala Darvas klasik:
+
+    - box_top/box_bottom dihitung dari SELURUH window `lookback_days` hari.
+    - Box dianggap VALID kalau extremes itu (box_top/box_bottom) sudah
+      terbentuk di bagian box period SEBELUM `confirmation_days` hari
+      terakhir -- artinya `confirmation_days` hari terakhir tidak membuat
+      high/low baru dibanding sisa periode sebelumnya. Ini menandakan harga
+      sudah "tenang"/terkurung beberapa hari terakhir, bukan masih dalam
+      proses membuat rekor tinggi/rendah baru (masih trending kuat).
+
+    Return dict {"box_top": float, "box_bottom": float, "is_valid": bool}
+    atau None kalau data kurang dari lookback_days.
     """
-    p_kecil = config.SMA_KECIL_POST_IPO[0]
-    p_penggiring = config.SMA_PENGGIRING_POST_IPO[0]
+    confirmation_days = confirmation_days or config.DARVAS_CONFIRMATION_DAYS
+    if df is None or len(df) < lookback_days or confirmation_days >= lookback_days:
+        return None
 
-    sma_kecil = row.get(f"SMA{p_kecil}", np.nan)
-    sma_penggiring = row.get(f"SMA{p_penggiring}", np.nan)
-    if np.isnan(sma_kecil) or np.isnan(sma_penggiring):
-        return False
+    window = df.tail(lookback_days)
+    box_top = float(window["High"].max())
+    box_bottom = float(window["Low"].min())
 
-    close = row["Close"]
-    if close < sma_kecil:
-        return False
+    if box_top <= box_bottom:
+        return None
 
-    tol = config.POST_IPO_TOL_MAHAL if close >= 500 else config.POST_IPO_TOL_MURAH
-    gap = abs(sma_penggiring - sma_kecil) / sma_kecil if sma_kecil != 0 else np.nan
-    if np.isnan(gap) or gap > tol:
-        return False
+    # Bagian "lama" (box period dikurangi confirmation period di ujung) --
+    # extremes box HARUS berasal dari sini.
+    older_part = window.iloc[:-confirmation_days]
+    recent_part = window.iloc[-confirmation_days:]
 
-    return True
+    older_top = float(older_part["High"].max())
+    older_bottom = float(older_part["Low"].min())
+
+    # Valid kalau bagian recent tidak melampaui extremes yang sudah terbentuk
+    # di bagian older -- dengan kata lain, box_top/box_bottom keseluruhan
+    # window SAMA DENGAN box_top/box_bottom dari bagian older saja (recent
+    # part tidak menambah rekor baru), DAN Close di recent part tetap di
+    # dalam rentang box.
+    no_new_extreme = (older_top >= box_top - 1e-9) and (older_bottom <= box_bottom + 1e-9)
+    recent_closes_inside = bool(
+        ((recent_part["Close"] >= box_bottom) & (recent_part["Close"] <= box_top)).all()
+    )
+    is_valid = no_new_extreme and recent_closes_inside
+
+    return {"box_top": box_top, "box_bottom": box_bottom, "is_valid": is_valid}
+
+
+def cek_box_dekat_ma_post_ipo(row, box, tolerance):
+    """
+    Cek apakah salah satu sisi Darvas Box (box_top atau box_bottom) berhimpit
+    (dalam `tolerance` persen) dengan salah satu MA post-IPO
+    (config.SMA_POST_IPO = [112, 224, 448]).
+
+    Return dict berisi info MA/sisi box yang PALING dekat (jarak persen
+    terkecil), atau None kalau tidak ada satu pun MA yang dalam toleransi
+    ATAU MA-nya belum terbentuk (data belum cukup panjang).
+
+    Dict yang direturn:
+    {
+        "ma_period": int,       # 112/224/448
+        "ma_val": float,
+        "role": "support"|"resistance",   # support = box_bottom yg dekat, resistance = box_top
+        "gap_pct": float,       # jarak persen (positif)
+        "box_top": float,
+        "box_bottom": float,
+    }
+    """
+    best = None
+    for p in config.SMA_POST_IPO:
+        ma_val = row.get(f"SMA{p}", np.nan)
+        if np.isnan(ma_val) or ma_val <= 0:
+            continue
+
+        gap_bottom = abs(box["box_bottom"] - ma_val) / ma_val
+        gap_top = abs(box["box_top"] - ma_val) / ma_val
+
+        if gap_bottom <= gap_top:
+            role, gap = "support", gap_bottom
+        else:
+            role, gap = "resistance", gap_top
+
+        if gap > tolerance:
+            continue
+
+        if best is None or gap < best["gap_pct"]:
+            best = {
+                "ma_period": p,
+                "ma_val": ma_val,
+                "role": role,
+                "gap_pct": gap,
+                "box_top": box["box_top"],
+                "box_bottom": box["box_bottom"],
+            }
+
+    return best
 
 
 # ============================================================
@@ -478,14 +535,21 @@ def screen_setup3(daily_data):
 
 
 # ============================================================
-# SETUP 4 -- POST-IPO 4H (sama semangat Setup 1, MA112/224/448)
+# SETUP 4 -- POST-IPO 4H (Darvas Box vs MA112/224/448)
 # ============================================================
-def screen_setup4(daily_data):
+def screen_setup4(daily_data, lookback_days=None, tolerance=None, confirmation_days=None):
     """
-    Sama logic dengan Setup 1 (clustering + target profit di SMA besar),
-    tapi pakai MA112 (kecil) / MA224 (penggiring) / MA448 (besar) supaya
-    cocok untuk saham yang belum lama IPO dan belum punya cukup histori
-    untuk MA60/100/200 klasik.
+    Cari saham post-IPO yang membentuk Darvas Box (konsolidasi harga N hari
+    terakhir, belum breakout) dengan salah satu sisi box (box_top ATAU
+    box_bottom) berhimpit dengan salah satu MA post-IPO (112/224/448) --
+    MA itu jadi support (kalau box_bottom yang dekat) atau resistance (kalau
+    box_top yang dekat) dari box tersebut.
+
+    `lookback_days` / `tolerance` / `confirmation_days`: parameter Darvas Box,
+    default dari config (DARVAS_BOX_LOOKBACK_DAYS / DARVAS_MA_TOLERANCE /
+    DARVAS_CONFIRMATION_DAYS) -- juga dipakai sebagai slider yang bisa digeser
+    live di dashboard (lihat app.py), makanya fungsi ini menerima override
+    eksplisit, bukan cuma baca config langsung.
 
     Filter umur listing dilakukan berdasarkan estimasi dari histori harga itu
     sendiri (lihat listing_age.py) -- ticker yang histori harganya sudah
@@ -495,11 +559,14 @@ def screen_setup4(daily_data):
     """
     import listing_age
 
+    lookback_days = lookback_days or config.DARVAS_BOX_LOOKBACK_DAYS
+    tolerance = tolerance if tolerance is not None else config.DARVAS_MA_TOLERANCE
+    confirmation_days = confirmation_days or config.DARVAS_CONFIRMATION_DAYS
+
     results = []
-    p_besar = config.SMA_BESAR_POST_IPO[0]
+    min_bars = max(config.SMA_POST_IPO) + 5
 
     for tkr, df in daily_data.items():
-        min_bars = max(config.SMA_BESAR_POST_IPO) + 5
         if len(df) < min_bars:
             continue
 
@@ -507,37 +574,56 @@ def screen_setup4(daily_data):
         if umur is not None and umur["days"] > config.POST_IPO_MAX_AGE_DAYS:
             continue
 
+        box = hitung_darvas_box(df, lookback_days, confirmation_days)
+        if box is None or not box["is_valid"]:
+            continue
+
         row = latest(df)
         close = row["Close"]
 
-        if not post_ipo_mepet(row):
+        match = cek_box_dekat_ma_post_ipo(row, box, tolerance)
+        if match is None:
             continue
 
-        tp_val_raw = row.get(f"SMA{p_besar}", np.nan)
-        if np.isnan(tp_val_raw) or tp_val_raw <= close:
-            continue
-        tp_val = tp_val_raw
+        box_range_pct = pct_gap(box["box_top"], box["box_bottom"])
 
-        sma_kecil = row.get(f"SMA{config.SMA_KECIL_POST_IPO[0]}", np.nan)
-        sma_penggiring = row.get(f"SMA{config.SMA_PENGGIRING_POST_IPO[0]}", np.nan)
-
-        gap_to_tp = (tp_val - sma_penggiring) / sma_penggiring if sma_penggiring else np.nan
-        if np.isnan(gap_to_tp) or gap_to_tp < config.POST_IPO_TO_TP_MIN:
-            continue
+        if match["role"] == "support":
+            # MA jadi lantai box -- target breakout ke atas box_top.
+            tp_val = box["box_top"]
+            tp_target_label = "Box_Top (breakout)"
+        else:
+            # MA jadi atap box (resistance) -- target ke MA post-IPO
+            # berikutnya yang lebih besar (kalau ada); kalau match["ma_period"]
+            # sudah yang terbesar (448), proyeksikan target selebar box_range
+            # di atas box_top (breakout measuring move ala Darvas).
+            bigger_mas = [p for p in config.SMA_POST_IPO if p > match["ma_period"]]
+            if bigger_mas:
+                next_p = min(bigger_mas)
+                next_val = row.get(f"SMA{next_p}", np.nan)
+                if not np.isnan(next_val):
+                    tp_val = next_val
+                    tp_target_label = f"SMA{next_p}"
+                else:
+                    tp_val = box["box_top"] * (1 + box_range_pct)
+                    tp_target_label = "Proyeksi box"
+            else:
+                tp_val = box["box_top"] * (1 + box_range_pct)
+                tp_target_label = "Proyeksi box"
 
         tp_pct = pct_gap(tp_val, close)
-        gap_pct = abs((sma_penggiring - sma_kecil) / sma_kecil) * 100 if sma_kecil else np.nan
 
         results.append(
             {
                 "Ticker": tkr,
                 "Close": round(close, 0),
-                f"SMA{config.SMA_KECIL_POST_IPO[0]}": round(sma_kecil, 0) if not np.isnan(sma_kecil) else None,
-                f"SMA{config.SMA_PENGGIRING_POST_IPO[0]}": round(sma_penggiring, 0) if not np.isnan(sma_penggiring) else None,
-                f"SMA{p_besar}": round(tp_val, 0),
-                "Gap_Cluster_pct": round(gap_pct, 2) if not np.isnan(gap_pct) else None,
-                "Gap_ke_TP_pct": round(gap_to_tp * 100, 2),
-                "TP_Target": f"SMA{p_besar}",
+                "Box_Top": round(box["box_top"], 0),
+                "Box_Bottom": round(box["box_bottom"], 0),
+                "Box_Range_pct": round(box_range_pct * 100, 2),
+                "MA_Period": match["ma_period"],
+                "MA_Val": round(match["ma_val"], 0),
+                "MA_Role": match["role"],
+                "Gap_Box_MA_pct": round(match["gap_pct"] * 100, 2),
+                "TP_Target": tp_target_label,
                 "TP_Val": round(tp_val, 0),
                 "TP_Pot_pct": round(tp_pct * 100, 2),
                 "Setup": "4",
@@ -562,9 +648,7 @@ def extract_chart_data(df, n=90):
             config.SMA_KECIL
             + config.SMA_PENGGIRING
             + config.SMA_BESAR
-            + config.SMA_KECIL_POST_IPO
-            + config.SMA_PENGGIRING_POST_IPO
-            + config.SMA_BESAR_POST_IPO
+            + config.SMA_POST_IPO
         )
     ]
     for _, r in tail.iterrows():
