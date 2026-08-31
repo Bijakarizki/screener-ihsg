@@ -1,14 +1,15 @@
 """
 Script utama -- dijalankan oleh GitHub Actions tiap hari setelah market close.
-1. Fetch daftar emiten terbaru + tanggal IPO/listing dari IDX (idx_emiten.py).
-2. Download data semua ticker (histori 5 tahun -- lihat config.YF_PERIOD).
-3. Jalankan Setup 1, 2, 3, 4 (Setup 4 = Post-IPO 4H, MA112/224/448).
-4. Tempel label umur listing ("Post-IPO age") ke setiap hasil.
-5. Gabungkan semua hasil, urutkan dari TP_Pot_pct terbesar -> terkecil.
-6. Bandingkan dengan hasil run sebelumnya -> tandai is_new.
-7. Simpan candle chart (90 bar) untuk tiap ticker yang lolos screening (biar ringan,
+1. Download data semua ticker (histori 5 tahun -- lihat config.YF_PERIOD).
+2. Jalankan Setup 1, 2, 3, 4 (Setup 4 = Post-IPO 4H, MA112/224/448).
+3. Tempel label estimasi umur listing ("Post-IPO age") ke setiap hasil,
+   dihitung dari histori harga itu sendiri (listing_age.py) -- bukan fetch
+   eksternal (lihat catatan di listing_age.py kenapa idx.co.id ditinggalkan).
+4. Gabungkan semua hasil, urutkan dari TP_Pot_pct terbesar -> terkecil.
+5. Bandingkan dengan hasil run sebelumnya -> tandai is_new.
+6. Simpan candle chart (90 bar) untuk tiap ticker yang lolos screening (biar ringan,
    tidak semua ticker disimpan candle-nya).
-8. Simpan ke data/latest_result.json + arsip ke data/history/.
+7. Simpan ke data/latest_result.json + arsip ke data/history/.
 """
 
 import json
@@ -17,7 +18,7 @@ import sys
 from datetime import datetime
 
 import config
-import idx_emiten
+import listing_age
 import screener
 
 
@@ -52,12 +53,8 @@ def main():
 
     prev_tickers = load_previous_tickers()
 
-    # --- Fetch daftar emiten terbaru + tanggal IPO dari IDX (dengan fallback) ---
-    log("Mengambil daftar emiten terbaru dari IDX ...")
-    emiten_list = idx_emiten.get_emiten_list(config.SAHAM_IHSG_SEED, log=log)
-    tickers_yf = [e["code"] + ".JK" for e in emiten_list]
-    listing_dates = {e["code"]: e["listing_date"] for e in emiten_list}
-    log(f"Total emiten yang akan di-screen: {len(tickers_yf)}")
+    tickers_yf = config.TICKERS_YF
+    log(f"Total ticker yang akan di-download: {len(tickers_yf)}")
 
     daily_data = screener.download_daily(
         tickers_yf,
@@ -94,18 +91,26 @@ def main():
     log(f"  -> {len(r3)} kandidat")
 
     log("Menjalankan Setup 4 (Post-IPO 4H) ...")
-    r4 = screener.screen_setup4(daily_data, listing_dates=listing_dates)
+    r4 = screener.screen_setup4(daily_data)
     log(f"  -> {len(r4)} kandidat")
 
     all_results = r1 + r2 + r3 + r4
 
-    # Tempel label umur listing ("Post-IPO age") ke SEMUA hasil, semua setup
+    # Tempel label estimasi umur listing ("Post-IPO age") ke SEMUA hasil,
+    # semua setup -- dihitung dari histori harga masing-masing ticker.
     for row in all_results:
-        ld = listing_dates.get(row["Ticker"])
-        umur = idx_emiten.hitung_umur_listing(ld)
-        row["Listing_Date"] = ld.strftime("%Y-%m-%d") if ld else None
-        row["Post_IPO_Label"] = umur["label"] if umur else "Tidak diketahui"
-        row["Post_IPO_Days"] = umur["days"] if umur else None
+        df = daily_data.get(row["Ticker"])
+        umur = listing_age.hitung_umur_listing(df)
+        if umur:
+            row["Listing_Date_Estimasi"] = umur["listing_date"].strftime("%Y-%m-%d")
+            row["Post_IPO_Label"] = umur["label"]
+            row["Post_IPO_Days"] = umur["days"]
+            row["Post_IPO_Is_Estimate"] = umur["is_estimate_only"]
+        else:
+            row["Listing_Date_Estimasi"] = None
+            row["Post_IPO_Label"] = "Tidak diketahui"
+            row["Post_IPO_Days"] = None
+            row["Post_IPO_Is_Estimate"] = None
 
     # Tandai is_new dibanding hasil run sebelumnya
     for row in all_results:
