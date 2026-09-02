@@ -269,9 +269,15 @@ POST_IPO_MAX_AGE_DAYS = 2200
 # ditembus itu (mis. MA20 baru lewat MA60 -> target MA100).
 #
 # Dua kondisi wajib:
-# 1. "Kondisi dasar": selama PGK_LOOKBACK_DAYS hari terakhir, MA20 harus
-#    konsisten DI BAWAH MA60 DAN MA100 DAN MA200 sepanjang periode itu
-#    (dicek tiap hari, bukan cuma snapshot terakhir).
+# 1. "Kondisi dasar": selama PGK_LOOKBACK_DAYS hari SEBELUM hari ini, MA20
+#    harus konsisten DI BAWAH MA60 DAN MA100 DAN MA200 sepanjang periode itu
+#    (dicek tiap hari, bukan cuma snapshot terakhir). Karena saat basing lama
+#    MA20/60/100 sering saling silang TIPIS akibat noise harian (bukan
+#    breakout beneran), "di bawah" di sini dilonggarkan sedikit lewat
+#    PGK_BASE_NOISE_TOLERANCE -- MA20 masih dianggap "di bawah" MA besar
+#    selama gap (MA20 - MA_besar)/MA_besar <= toleransi noise itu, meski
+#    sesekali sedikit positif. Ini SEPENUHNYA terpisah dari PGK_MA_TOLERANCE
+#    (toleransi kondisi sinyal, jauh lebih longgar) di bawah.
 # 2. "Kondisi sinyal": HARI INI, MA20 mepet/baru sedikit di atas salah satu
 #    MA60/100/200 (yang paling dekat) -- dalam toleransi PGK_MA_TOLERANCE.
 #
@@ -285,6 +291,14 @@ POST_IPO_MAX_AGE_DAYS = 2200
 PGK_LOOKBACK_DAYS = 60                 # default slider: 60 hari
 PGK_LOOKBACK_DAYS_MIN = 20             # batas bawah slider: 20 hari
 PGK_LOOKBACK_DAYS_MAX = 250            # batas atas slider: 250 hari (~1 tahun trading)
+
+# Toleransi noise untuk kondisi DASAR -- MA20 masih dianggap "di bawah" MA
+# besar selama gap (MA20 - MA_besar)/MA_besar tidak melebihi ini. Kecil,
+# cuma untuk menoleransi silang-tipis harian saat basing, BUKAN untuk
+# mendeteksi sinyal breakout (itu tugas PGK_MA_TOLERANCE di bawah). Tidak
+# ada slider untuk ini -- nilai tetap, karena ini soal noise data, bukan
+# preferensi trading yang wajar diubah-ubah pengguna.
+PGK_BASE_NOISE_TOLERANCE = 0.01        # 1% -- tetap, tidak jadi slider
 
 # Toleransi jarak (persen) MA20 ke MA60/100/200 terdekat, supaya dianggap
 # "mepet atau baru sedikit menembus". Nilai POSITIF berarti MA20 boleh sedikit
