@@ -259,6 +259,43 @@ DARVAS_MA_TOLERANCE_MAX = 0.15         # batas atas slider: 15% (longgar)
 POST_IPO_MAX_AGE_DAYS = 2200
 
 # ============================================================
+# SETUP 5 -- PGK BOTTOM
+# ============================================================
+# Konsep: cari saham yang SUDAH LAMA di dasar (MA20 konsisten di bawah
+# MA60/100/200 sepanjang lookback tertentu -- downtrend/basing panjang),
+# TAPI sekarang MA20-nya baru mepet atau baru sedikit menembus ke atas salah
+# satu MA besar (60/100/200, yang paling dekat) -- sinyal awal mulai rebound
+# dari dasar. Target profit: MA BERIKUTNYA yang lebih besar dari MA yang baru
+# ditembus itu (mis. MA20 baru lewat MA60 -> target MA100).
+#
+# Dua kondisi wajib:
+# 1. "Kondisi dasar": selama PGK_LOOKBACK_DAYS hari terakhir, MA20 harus
+#    konsisten DI BAWAH MA60 DAN MA100 DAN MA200 sepanjang periode itu
+#    (dicek tiap hari, bukan cuma snapshot terakhir).
+# 2. "Kondisi sinyal": HARI INI, MA20 mepet/baru sedikit di atas salah satu
+#    MA60/100/200 (yang paling dekat) -- dalam toleransi PGK_MA_TOLERANCE.
+#
+# Filter opsional (toggle di web, reuse logic Setup 1/4 yang sudah ada):
+# - "pernah big volume" dalam lookback tertentu (reuse cek_big_volume_terakhir)
+# - "pernah Darvas Box" (reuse hitung_darvas_box, Setup 4)
+# - "pernah clustering rapat" (reuse cek_clustering_konsisten, Setup 1)
+
+# Lookback kondisi dasar (slider di web) -- berapa hari terakhir MA20 harus
+# konsisten di bawah MA60/100/200.
+PGK_LOOKBACK_DAYS = 60                 # default slider: 60 hari
+PGK_LOOKBACK_DAYS_MIN = 20             # batas bawah slider: 20 hari
+PGK_LOOKBACK_DAYS_MAX = 250            # batas atas slider: 250 hari (~1 tahun trading)
+
+# Toleransi jarak (persen) MA20 ke MA60/100/200 terdekat, supaya dianggap
+# "mepet atau baru sedikit menembus". Nilai POSITIF berarti MA20 boleh sedikit
+# DI ATAS MA target (baru menembus); nilai ini dipakai sebagai batas atas
+# gap relatif (MA20 - MA_target) / MA_target, baik untuk gap negatif (masih
+# di bawah, mepet) maupun gap positif kecil (baru lewat dikit).
+PGK_MA_TOLERANCE = 0.05                # default slider: 5%
+PGK_MA_TOLERANCE_MIN = 0.01            # batas bawah slider: 1% (sangat ketat)
+PGK_MA_TOLERANCE_MAX = 0.15            # batas atas slider: 15% (longgar)
+
+# ============================================================
 # DAFTAR EMITEN & LABEL POST-IPO
 # ============================================================
 # NOTE: sebelumnya di sini ada rencana fetch daftar emiten + tanggal IPO
