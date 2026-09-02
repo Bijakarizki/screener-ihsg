@@ -5,6 +5,9 @@ Setup 2: Bounce SMA Besar
 Setup 3: Downtrend + Volume Signifikan
 Setup 4: Post-IPO 4H (Darvas Box vs MA112/224/448 -- untuk saham yang
          belum punya histori panjang untuk MA60/100/200 klasik)
+Setup 5: PGK Bottom (MA20 sudah lama di bawah MA60/100/200, lalu mepet/baru
+         sedikit menembus ke atas salah satu MA besar itu -- sinyal awal
+         rebound dari dasar; target ke MA berikutnya yang lebih besar)
 
 Perbedaan vs notebook:
 - Tidak ada bagian Intraday 1 menit (sengaja dihilangkan, sesuai keputusan).
@@ -628,6 +631,136 @@ def screen_setup4(daily_data, lookback_days=None, tolerance=None, confirmation_d
                 "TP_Pot_pct": round(tp_pct * 100, 2),
                 "Setup": "4",
                 "Setup_Label": "Post-IPO 4H",
+            }
+        )
+    return results
+
+
+# ============================================================
+# SETUP 5 -- PGK BOTTOM
+# ============================================================
+def cek_ma20_selalu_di_bawah(df, lookback_days):
+    """
+    Cek apakah MA20 konsisten DI BAWAH MA60 DAN MA100 DAN MA200 sepanjang
+    `lookback_days` hari SEBELUM hari terakhir (exclude hari ini) -- ini
+    kondisi "dasar" Setup 5, saham sudah lama di bawah semua MA besar.
+
+    Hari terakhir sengaja di-exclude dari pengecekan ini karena hari itu
+    justru yang sedang diperiksa sebagai "hari sinyal" (lihat
+    cek_ma20_mepet_atau_lewat) -- wajar kalau MA20 hari ini sudah mepet/lewat,
+    itu bukan pelanggaran kondisi dasar.
+
+    Return True/False. False juga kalau data kurang dari lookback_days+1
+    atau ada NaN di salah satu kolom SMA dalam window itu.
+    """
+    if df is None or len(df) < lookback_days + 1:
+        return False
+
+    # Ambil lookback_days hari SEBELUM hari terakhir -- baris [-(N+1) : -1]
+    window = df.iloc[-(lookback_days + 1):-1]
+    for col in ("SMA20", "SMA60", "SMA100", "SMA200"):
+        if col not in window.columns or window[col].isna().any():
+            return False
+
+    return bool(
+        ((window["SMA20"] < window["SMA60"]) &
+         (window["SMA20"] < window["SMA100"]) &
+         (window["SMA20"] < window["SMA200"])).all()
+    )
+
+
+def cek_ma20_mepet_atau_lewat(row, tolerance):
+    """
+    Cek kondisi "sinyal" Setup 5: MA20 HARI INI mepet atau baru sedikit
+    menembus ke atas salah satu MA60/100/200 (yang paling dekat), dalam
+    `tolerance` persen.
+
+    Gap dihitung sebagai (MA20 - MA_target) / MA_target -- boleh negatif
+    kecil (MA20 masih di bawah, mepet) atau positif kecil (MA20 baru lewat
+    dikit), asalkan |gap| <= tolerance.
+
+    Return dict {"ma_period": int, "ma_val": float, "gap_pct": float} untuk
+    MA yang PALING DEKAT dalam toleransi, atau None kalau tidak ada yang
+    dalam toleransi / data MA20 tidak ada.
+    """
+    ma20 = row.get("SMA20", np.nan)
+    if np.isnan(ma20):
+        return None
+
+    best = None
+    for p in (60, 100, 200):
+        ma_val = row.get(f"SMA{p}", np.nan)
+        if np.isnan(ma_val) or ma_val <= 0:
+            continue
+        gap = (ma20 - ma_val) / ma_val
+        if abs(gap) > tolerance:
+            continue
+        if best is None or abs(gap) < abs(best["gap_pct"]):
+            best = {"ma_period": p, "ma_val": ma_val, "gap_pct": gap}
+
+    return best
+
+
+def screen_setup5(daily_data, lookback_days=None, tolerance=None):
+    """
+    Setup 5 "PGK Bottom": saham yang sudah lama di dasar (MA20 konsisten di
+    bawah MA60/100/200 selama `lookback_days` hari SEBELUM hari ini), TAPI
+    MA20-nya HARI INI mepet/baru sedikit menembus ke atas salah satu
+    MA60/100/200 (yang paling dekat) -- sinyal awal mulai rebound dari dasar.
+
+    Target profit: MA BERIKUTNYA yang lebih besar dari MA yang baru ditembus
+    (mis. MA20 baru lewat MA60 -> target MA100; kalau yang ditembus MA200
+    /* MA terbesar */, tidak ada target berikutnya -- ticker itu di-skip,
+    karena tidak ada level yang bisa dijadikan acuan potensi profit).
+
+    `lookback_days` / `tolerance`: default dari config (PGK_LOOKBACK_DAYS /
+    PGK_MA_TOLERANCE), juga dipakai sebagai slider yang bisa digeser live di
+    dashboard.
+    """
+    lookback_days = lookback_days or config.PGK_LOOKBACK_DAYS
+    tolerance = tolerance if tolerance is not None else config.PGK_MA_TOLERANCE
+
+    results = []
+    min_bars = max(config.SMA_BESAR) + lookback_days + 1
+
+    for tkr, df in daily_data.items():
+        if len(df) < min_bars:
+            continue
+
+        if not cek_ma20_selalu_di_bawah(df, lookback_days):
+            continue
+
+        row = latest(df)
+        match = cek_ma20_mepet_atau_lewat(row, tolerance)
+        if match is None:
+            continue
+
+        # Target: MA berikutnya yang lebih besar dari MA yang baru ditembus.
+        bigger_mas = [p for p in (60, 100, 200) if p > match["ma_period"]]
+        if not bigger_mas:
+            # MA200 sudah yang terbesar -- tidak ada target berikutnya, skip.
+            continue
+        next_p = min(bigger_mas)
+        tp_val = row.get(f"SMA{next_p}", np.nan)
+        if np.isnan(tp_val):
+            continue
+
+        close = row["Close"]
+        tp_pct = pct_gap(tp_val, close)
+
+        results.append(
+            {
+                "Ticker": tkr,
+                "Close": round(close, 0),
+                "SMA20": round(row["SMA20"], 0),
+                "MA_Period": match["ma_period"],
+                "MA_Val": round(match["ma_val"], 0),
+                "Gap_MA20_MA_pct": round(match["gap_pct"] * 100, 2),
+                "TP_Target": f"SMA{next_p}",
+                "TP_Val": round(tp_val, 0),
+                "TP_Pot_pct": round(tp_pct * 100, 2),
+                "Setup": "5",
+                "Setup_Label": "PGK Bottom",
             }
         )
     return results
