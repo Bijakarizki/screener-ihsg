@@ -195,6 +195,10 @@ CATEGORY_INFO = {
         "label": "Post-IPO 4H",
         "desc": "Saham post-IPO membentuk Darvas Box (konsolidasi harga, belum breakout) dengan salah satu sisi box berhimpit dengan MA112/224/448 -- MA itu berperan sebagai support atau resistance box.",
     },
+    "5": {
+        "label": "PGK Bottom",
+        "desc": "Saham sudah lama di dasar (MA20 konsisten di bawah MA60/100/200), tapi MA20 sekarang mepet/baru sedikit menembus ke atas salah satu MA besar -- sinyal awal mulai rebound dari dasar.",
+    },
 }
 
 SMA_COLORS = {
@@ -390,6 +394,47 @@ def cek_setup4_darvas_live(chart_rows, lookback_days, tolerance, confirmation_da
     return match is not None
 
 
+def cek_setup5_pgk_live(chart_rows, lookback_days, tolerance):
+    """
+    Versi ringan cek_ma20_selalu_di_bawah() + cek_ma20_mepet_atau_lewat()
+    (screener.py) yang bekerja dari data chart -- dipakai supaya slider
+    lookback/toleransi Setup 5 di dashboard bisa mem-filter ulang secara
+    live, tanpa perlu re-run screener.py.
+
+    Return True kalau kondisi dasar (MA20 konsisten di bawah SMA60/100/200
+    selama `lookback_days` hari SEBELUM hari ini) terpenuhi DAN kondisi
+    sinyal (MA20 hari ini mepet/lewat salah satu SMA60/100/200 dalam
+    `tolerance`) juga terpenuhi.
+    """
+    if not chart_rows or len(chart_rows) < lookback_days + 1:
+        return False
+
+    window = chart_rows[-(lookback_days + 1):-1]
+    for bar in window:
+        ma20 = bar.get("SMA20")
+        ma60 = bar.get("SMA60")
+        ma100 = bar.get("SMA100")
+        ma200 = bar.get("SMA200")
+        if ma20 is None or ma60 is None or ma100 is None or ma200 is None:
+            return False
+        if not (ma20 < ma60 and ma20 < ma100 and ma20 < ma200):
+            return False
+
+    last_bar = chart_rows[-1]
+    ma20_now = last_bar.get("SMA20")
+    if ma20_now is None:
+        return False
+
+    for p in (60, 100, 200):
+        ma_val = last_bar.get(f"SMA{p}")
+        if ma_val is None or ma_val <= 0:
+            continue
+        gap = (ma20_now - ma_val) / ma_val
+        if abs(gap) <= tolerance:
+            return True
+    return False
+
+
 # ============================================================
 # CHART
 # ============================================================
@@ -565,6 +610,13 @@ def render_result_row(row, charts, sma20_tol_pct, big_vol_days, big_vol_ratio, c
                     f"berperan sebagai {role_label} box (jarak {row.get('Gap_Box_MA_pct', 0):.1f}%)"
                 )
                 st.write(f"Target: {row['TP_Target']} = Rp {format_rupiah(row['TP_Val'])}")
+            elif row["Setup"] == "5":
+                st.write(
+                    f"SMA20 = Rp {format_rupiah(row.get('SMA20'))}, mepet ke "
+                    f"SMA{row.get('MA_Period')} = Rp {format_rupiah(row.get('MA_Val'))} "
+                    f"(jarak {row.get('Gap_MA20_MA_pct', 0):.1f}%)"
+                )
+                st.write(f"Target: {row['TP_Target']} = Rp {format_rupiah(row['TP_Val'])}")
 
             if row.get("Post_IPO_Label"):
                 listing_date = row.get("Listing_Date_Estimasi")
@@ -634,13 +686,14 @@ def main():
     summary = data["summary"]
 
     st.markdown("<br>", unsafe_allow_html=True)
-    m1, m2, m3, m4, m5, m6 = st.columns(6)
+    m1, m2, m3, m4, m5, m6, m7 = st.columns(7)
     m1.metric("Total kandidat", summary["total_count"])
     m2.metric("Baru hari ini", summary["new_count"])
     m3.metric("Potential 4H", summary["setup1_count"])
     m4.metric("Potential 3M", summary["setup2_count"])
     m5.metric("Big Vol", summary["setup3_count"])
     m6.metric("Post-IPO 4H", summary.get("setup4_count", 0))
+    m7.metric("PGK Bottom", summary.get("setup5_count", 0))
 
     st.markdown(
         f"<p style='color:{FAINT};font-size:0.82rem'>Terakhir update: {data['generated_at_display']} &middot; "
@@ -654,8 +707,8 @@ def main():
     st.sidebar.markdown("**Filter**")
     setup_filter = st.sidebar.multiselect(
         "Kategori",
-        options=["1", "2", "3", "4"],
-        default=["1", "2", "3", "4"],
+        options=["1", "2", "3", "4", "5"],
+        default=["1", "2", "3", "4", "5"],
         format_func=lambda s: CATEGORY_INFO[s]["label"],
     )
     only_new = st.sidebar.checkbox("Hanya tampilkan yang baru", value=False)
@@ -747,6 +800,28 @@ def main():
         "supaya SMA itu dianggap jadi support/resistance box. Makin kecil = makin ketat.",
     )
 
+    st.sidebar.markdown("**Filter khusus PGK Bottom (Setup 5)**")
+    pgk_lookback_days = st.sidebar.slider(
+        "Lookback kondisi dasar (hari)",
+        min_value=config.PGK_LOOKBACK_DAYS_MIN,
+        max_value=min(config.PGK_LOOKBACK_DAYS_MAX, 89),
+        value=min(config.PGK_LOOKBACK_DAYS, 89),
+        step=5,
+        help="Berapa hari (sebelum hari ini) MA20 harus konsisten di bawah SMA60/100/200 "
+        "supaya dianggap sudah lama di dasar. Dibatasi 89 hari karena chart yang disimpan "
+        "cuma menyimpan 90 hari terakhir -- hasil awal (dari run harian) tetap memakai "
+        "lookback penuh sesuai config, filter slider ini cuma untuk eksplorasi ulang di sini.",
+    )
+    pgk_tolerance_pct = st.sidebar.slider(
+        "Toleransi jarak MA20 ke MA (%)",
+        min_value=int(config.PGK_MA_TOLERANCE_MIN * 100),
+        max_value=int(config.PGK_MA_TOLERANCE_MAX * 100),
+        value=int(config.PGK_MA_TOLERANCE * 100),
+        step=1,
+        help="Seberapa dekat MA20 hari ini boleh mepet/melewati SMA60/100/200 (yang paling "
+        "dekat) supaya dianggap sinyal awal rebound. Makin kecil = makin ketat.",
+    )
+
     st.sidebar.markdown("**Filter umur listing (semua kategori)**")
     max_listing_years = st.sidebar.slider(
         "Maks. umur listing (tahun)",
@@ -805,6 +880,12 @@ def main():
             or cek_setup4_darvas_live(
                 charts.get(r["Ticker"]), darvas_lookback_days, darvas_tolerance_pct / 100.0,
                 darvas_confirmation_days,
+            )
+        )
+        and (
+            r["Setup"] != "5"
+            or cek_setup5_pgk_live(
+                charts.get(r["Ticker"]), pgk_lookback_days, pgk_tolerance_pct / 100.0
             )
         )
         and (
