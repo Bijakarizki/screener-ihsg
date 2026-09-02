@@ -394,18 +394,24 @@ def cek_setup4_darvas_live(chart_rows, lookback_days, tolerance, confirmation_da
     return match is not None
 
 
-def cek_setup5_pgk_live(chart_rows, lookback_days, tolerance):
+def cek_setup5_pgk_live(chart_rows, lookback_days, tolerance, noise_tolerance=None):
     """
     Versi ringan cek_ma20_selalu_di_bawah() + cek_ma20_mepet_atau_lewat()
     (screener.py) yang bekerja dari data chart -- dipakai supaya slider
     lookback/toleransi Setup 5 di dashboard bisa mem-filter ulang secara
     live, tanpa perlu re-run screener.py.
 
+    `noise_tolerance` (default config.PGK_BASE_NOISE_TOLERANCE, 1%): MA20
+    masih dianggap "di bawah" MA besar selama gap (MA20-MA_besar)/MA_besar
+    <= noise_tolerance -- menoleransi silang-tipis harian saat basing, sama
+    seperti versi screener.py. Ini beda dari `tolerance` (kondisi sinyal).
+
     Return True kalau kondisi dasar (MA20 konsisten di bawah SMA60/100/200
-    selama `lookback_days` hari SEBELUM hari ini) terpenuhi DAN kondisi
-    sinyal (MA20 hari ini mepet/lewat salah satu SMA60/100/200 dalam
-    `tolerance`) juga terpenuhi.
+    selama `lookback_days` hari SEBELUM hari ini, dengan toleransi noise)
+    terpenuhi DAN kondisi sinyal (MA20 hari ini mepet/lewat salah satu
+    SMA60/100/200 dalam `tolerance`) juga terpenuhi.
     """
+    noise_tolerance = noise_tolerance if noise_tolerance is not None else config.PGK_BASE_NOISE_TOLERANCE
     if not chart_rows or len(chart_rows) < lookback_days + 1:
         return False
 
@@ -417,8 +423,10 @@ def cek_setup5_pgk_live(chart_rows, lookback_days, tolerance):
         ma200 = bar.get("SMA200")
         if ma20 is None or ma60 is None or ma100 is None or ma200 is None:
             return False
-        if not (ma20 < ma60 and ma20 < ma100 and ma20 < ma200):
-            return False
+        for ma_besar in (ma60, ma100, ma200):
+            gap = (ma20 - ma_besar) / ma_besar if ma_besar else None
+            if gap is None or gap > noise_tolerance:
+                return False
 
     last_bar = chart_rows[-1]
     ma20_now = last_bar.get("SMA20")
