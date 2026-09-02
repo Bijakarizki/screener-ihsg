@@ -639,11 +639,20 @@ def screen_setup4(daily_data, lookback_days=None, tolerance=None, confirmation_d
 # ============================================================
 # SETUP 5 -- PGK BOTTOM
 # ============================================================
-def cek_ma20_selalu_di_bawah(df, lookback_days):
+def cek_ma20_selalu_di_bawah(df, lookback_days, noise_tolerance=None):
     """
     Cek apakah MA20 konsisten DI BAWAH MA60 DAN MA100 DAN MA200 sepanjang
     `lookback_days` hari SEBELUM hari terakhir (exclude hari ini) -- ini
     kondisi "dasar" Setup 5, saham sudah lama di bawah semua MA besar.
+
+    "Di bawah" di sini dilonggarkan sedikit lewat `noise_tolerance` (default
+    config.PGK_BASE_NOISE_TOLERANCE, 1%): MA20 masih dianggap "di bawah" MA
+    besar selama gap (MA20 - MA_besar) / MA_besar <= noise_tolerance --
+    bukan harus < 0 secara ketat. Ini penting karena saat saham benar-benar
+    basing lama, MA20/60/100 sering saling silang TIPIS akibat noise harian
+    (bukan breakout beneran) -- tanpa toleransi ini, syarat "semua hari"
+    nyaris tidak pernah lolos untuk saham yang justru paling representatif
+    sebagai kandidat PGK Bottom.
 
     Hari terakhir sengaja di-exclude dari pengecekan ini karena hari itu
     justru yang sedang diperiksa sebagai "hari sinyal" (lihat
@@ -653,6 +662,7 @@ def cek_ma20_selalu_di_bawah(df, lookback_days):
     Return True/False. False juga kalau data kurang dari lookback_days+1
     atau ada NaN di salah satu kolom SMA dalam window itu.
     """
+    noise_tolerance = noise_tolerance if noise_tolerance is not None else config.PGK_BASE_NOISE_TOLERANCE
     if df is None or len(df) < lookback_days + 1:
         return False
 
@@ -662,11 +672,15 @@ def cek_ma20_selalu_di_bawah(df, lookback_days):
         if col not in window.columns or window[col].isna().any():
             return False
 
-    return bool(
-        ((window["SMA20"] < window["SMA60"]) &
-         (window["SMA20"] < window["SMA100"]) &
-         (window["SMA20"] < window["SMA200"])).all()
-    )
+    ma20 = window["SMA20"]
+    ok = True
+    for col in ("SMA60", "SMA100", "SMA200"):
+        ma_besar = window[col]
+        gap = (ma20 - ma_besar) / ma_besar
+        if not bool((gap <= noise_tolerance).all()):
+            ok = False
+            break
+    return ok
 
 
 def cek_ma20_mepet_atau_lewat(row, tolerance):
