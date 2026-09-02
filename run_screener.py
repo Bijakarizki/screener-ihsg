@@ -1,7 +1,7 @@
 """
 Script utama -- dijalankan oleh GitHub Actions tiap hari setelah market close.
 1. Download data semua ticker (histori 5 tahun -- lihat config.YF_PERIOD).
-2. Jalankan Setup 1, 2, 3, 4 (Setup 4 = Post-IPO 4H, MA112/224/448).
+2. Jalankan Setup 1, 2, 3, 4, 5 (Setup 4 = Post-IPO 4H, Setup 5 = PGK Bottom).
 3. Tempel label estimasi umur listing ("Post-IPO age") ke setiap hasil,
    dihitung dari histori harga itu sendiri (listing_age.py) -- bukan fetch
    eksternal (lihat catatan di listing_age.py kenapa idx.co.id ditinggalkan).
@@ -33,17 +33,17 @@ def progress_cb(i, total, batch):
 def load_previous_tickers():
     """Ambil set ticker per setup dari hasil run sebelumnya, untuk deteksi 'penghuni baru'."""
     if not os.path.exists(config.LATEST_RESULT_FILE):
-        return {"1": set(), "2": set(), "3": set(), "4": set()}
+        return {"1": set(), "2": set(), "3": set(), "4": set(), "5": set()}
     try:
         with open(config.LATEST_RESULT_FILE, "r") as f:
             prev = json.load(f)
-        sets = {"1": set(), "2": set(), "3": set(), "4": set()}
+        sets = {"1": set(), "2": set(), "3": set(), "4": set(), "5": set()}
         for row in prev.get("results", []):
             sets.setdefault(row["Setup"], set()).add(row["Ticker"])
         return sets
     except Exception as e:
         log(f"Gagal load hasil sebelumnya: {e}")
-        return {"1": set(), "2": set(), "3": set(), "4": set()}
+        return {"1": set(), "2": set(), "3": set(), "4": set(), "5": set()}
 
 
 def main():
@@ -94,7 +94,11 @@ def main():
     r4 = screener.screen_setup4(daily_data)
     log(f"  -> {len(r4)} kandidat")
 
-    all_results = r1 + r2 + r3 + r4
+    log("Menjalankan Setup 5 (PGK Bottom) ...")
+    r5 = screener.screen_setup5(daily_data)
+    log(f"  -> {len(r5)} kandidat")
+
+    all_results = r1 + r2 + r3 + r4 + r5
 
     # Tempel label estimasi umur listing ("Post-IPO age") ke SEMUA hasil,
     # semua setup -- dihitung dari histori harga masing-masing ticker.
@@ -147,6 +151,7 @@ def main():
             "setup2_count": len(r2),
             "setup3_count": len(r3),
             "setup4_count": len(r4),
+            "setup5_count": len(r5),
             "total_count": len(all_results),
             "new_count": sum(1 for r in all_results if r["is_new"]),
         },
