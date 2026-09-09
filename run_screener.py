@@ -37,13 +37,13 @@ def load_previous_tickers():
     try:
         with open(config.LATEST_RESULT_FILE, "r") as f:
             prev = json.load(f)
-        sets = {"1": set(), "2": set(), "3": set(), "4": set(), "5": set()}
+        sets = {"1": set(), "2": set(), "3": set(), "4": set(), "5": set(), "6": set()}
         for row in prev.get("results", []):
             sets.setdefault(row["Setup"], set()).add(row["Ticker"])
         return sets
     except Exception as e:
         log(f"Gagal load hasil sebelumnya: {e}")
-        return {"1": set(), "2": set(), "3": set(), "4": set(), "5": set()}
+        return {"1": set(), "2": set(), "3": set(), "4": set(), "5": set(), "6": set()}
 
 
 def main():
@@ -98,7 +98,11 @@ def main():
     r5 = screener.screen_setup5(daily_data)
     log(f"  -> {len(r5)} kandidat")
 
-    all_results = r1 + r2 + r3 + r4 + r5
+    log("Menjalankan Setup 6 (Darvas Box Ketat) ...")
+    r6 = screener.screen_setup6(daily_data)
+    log(f"  -> {len(r6)} kandidat")
+
+    all_results = r1 + r2 + r3 + r4 + r5 + r6
 
     # Tempel label estimasi umur listing ("Post-IPO age") ke SEMUA hasil,
     # semua setup -- dihitung dari histori harga masing-masing ticker.
@@ -152,6 +156,7 @@ def main():
             "setup3_count": len(r3),
             "setup4_count": len(r4),
             "setup5_count": len(r5),
+            "setup6_count": len(r6),
             "total_count": len(all_results),
             "new_count": sum(1 for r in all_results if r["is_new"]),
         },

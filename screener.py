@@ -781,6 +781,67 @@ def screen_setup5(daily_data, lookback_days=None, tolerance=None):
 
 
 # ============================================================
+# SETUP 6 -- DARVAS BOX KETAT (Konsolidasi Sempit, Semua Saham)
+# ============================================================
+def screen_setup6(daily_data, lookback_days=None, max_range_pct=None, confirmation_days=None):
+    """
+    Cari SEMUA saham (bukan cuma post-IPO seperti Setup 4, dan tanpa syarat
+    berhimpit dengan MA apa pun) yang saat ini sedang membentuk Darvas Box
+    SEMPIT -- lebar box (box_top - box_bottom) relatif terhadap box_bottom
+    maksimal `max_range_pct`, dalam `lookback_days` hari terakhir. Validasi
+    box (sudah "tenang"/matang, bukan masih trending kuat) pakai definisi
+    dua-periode yang sama dengan Setup 4 (lihat hitung_darvas_box()).
+
+    Target profit sederhana: breakout ke box_top.
+
+    `lookback_days` / `max_range_pct` / `confirmation_days`: default dari
+    config (DARVAS_TIGHT_LOOKBACK_DAYS / DARVAS_TIGHT_MAX_RANGE_PCT /
+    DARVAS_TIGHT_CONFIRMATION_DAYS), juga dipakai sebagai slider yang bisa
+    digeser live di dashboard.
+    """
+    lookback_days = lookback_days or config.DARVAS_TIGHT_LOOKBACK_DAYS
+    max_range_pct = (
+        max_range_pct if max_range_pct is not None else config.DARVAS_TIGHT_MAX_RANGE_PCT
+    )
+    confirmation_days = confirmation_days or config.DARVAS_TIGHT_CONFIRMATION_DAYS
+
+    results = []
+    for tkr, df in daily_data.items():
+        if len(df) < lookback_days:
+            continue
+
+        box = hitung_darvas_box(df, lookback_days, confirmation_days)
+        if box is None or not box["is_valid"]:
+            continue
+
+        box_range_pct = pct_gap(box["box_top"], box["box_bottom"])
+        if box_range_pct is None or np.isnan(box_range_pct) or box_range_pct > max_range_pct:
+            continue
+
+        row = latest(df)
+        close = row["Close"]
+
+        tp_val = box["box_top"]
+        tp_pct = pct_gap(tp_val, close)
+
+        results.append(
+            {
+                "Ticker": tkr,
+                "Close": round(close, 0),
+                "Box_Top": round(box["box_top"], 0),
+                "Box_Bottom": round(box["box_bottom"], 0),
+                "Box_Range_pct": round(box_range_pct * 100, 2),
+                "TP_Target": "Box_Top (breakout)",
+                "TP_Val": round(tp_val, 0),
+                "TP_Pot_pct": round(tp_pct * 100, 2),
+                "Setup": "6",
+                "Setup_Label": "Darvas Box Ketat",
+            }
+        )
+    return results
+
+
+# ============================================================
 # CANDLE DATA UNTUK CHART (60 bar terakhir + SMA + volume)
 # ============================================================
 def extract_chart_data(df, n=90):

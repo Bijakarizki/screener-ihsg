@@ -199,6 +199,10 @@ CATEGORY_INFO = {
         "label": "PGK Bottom",
         "desc": "Saham sudah lama di dasar (MA20 konsisten di bawah MA60/100/200), tapi MA20 sekarang mepet/baru sedikit menembus ke atas salah satu MA besar -- sinyal awal mulai rebound dari dasar.",
     },
+    "6": {
+        "label": "Darvas Box Ketat",
+        "desc": "Saham (semua kategori, tanpa syarat MA) sedang membentuk Darvas Box SEMPIT -- lebar box maksimal sekian persen selama N hari terakhir, tanda konsolidasi ketat menjelang breakout.",
+    },
 }
 
 SMA_COLORS = {
@@ -378,6 +382,19 @@ def cek_box_dekat_ma_dari_chart(chart_rows, box, tolerance, ma_periods=(112, 224
         if best is None or gap < best["gap_pct"]:
             best = {"ma_period": p, "ma_val": ma_val, "role": role, "gap_pct": gap}
     return best
+
+
+def cek_setup6_darvas_tight_live(chart_rows, lookback_days, confirmation_days, max_range_pct):
+    """
+    Filter live Setup 6 (Darvas Box Ketat) di sidebar -- pakai
+    hitung_darvas_box_dari_chart() yang sama dengan Setup 4 (tidak butuh MA
+    sama sekali), lalu cek lebar box (relatif box_bottom) <= max_range_pct.
+    """
+    box = hitung_darvas_box_dari_chart(chart_rows, lookback_days, confirmation_days)
+    if box is None or not box["is_valid"] or box["box_bottom"] == 0:
+        return False
+    box_range_pct = (box["box_top"] - box["box_bottom"]) / box["box_bottom"]
+    return box_range_pct <= max_range_pct
 
 
 def cek_setup4_darvas_live(chart_rows, lookback_days, tolerance, confirmation_days):
@@ -625,6 +642,13 @@ def render_result_row(row, charts, sma20_tol_pct, big_vol_days, big_vol_ratio, c
                     f"(jarak {row.get('Gap_MA20_MA_pct', 0):.1f}%)"
                 )
                 st.write(f"Target: {row['TP_Target']} = Rp {format_rupiah(row['TP_Val'])}")
+            elif row["Setup"] == "6":
+                st.write(
+                    f"Darvas Box: Rp {format_rupiah(row.get('Box_Bottom'))} - "
+                    f"Rp {format_rupiah(row.get('Box_Top'))} "
+                    f"(lebar {row.get('Box_Range_pct', 0):.1f}%)"
+                )
+                st.write(f"Target: {row['TP_Target']} = Rp {format_rupiah(row['TP_Val'])}")
 
             if row.get("Post_IPO_Label"):
                 listing_date = row.get("Listing_Date_Estimasi")
@@ -656,7 +680,7 @@ def render_result_row(row, charts, sma20_tol_pct, big_vol_days, big_vol_ratio, c
             )
 
         box_lines = None
-        if row["Setup"] == "4" and row.get("Box_Top") is not None:
+        if row["Setup"] in ("4", "6") and row.get("Box_Top") is not None:
             box_lines = [
                 ("Box Top", row["Box_Top"], "#ffb020"),
                 ("Box Bottom", row["Box_Bottom"], "#ffb020"),
@@ -694,7 +718,7 @@ def main():
     summary = data["summary"]
 
     st.markdown("<br>", unsafe_allow_html=True)
-    m1, m2, m3, m4, m5, m6, m7 = st.columns(7)
+    m1, m2, m3, m4, m5, m6, m7, m8 = st.columns(8)
     m1.metric("Total kandidat", summary["total_count"])
     m2.metric("Baru hari ini", summary["new_count"])
     m3.metric("Potential 4H", summary["setup1_count"])
@@ -702,6 +726,7 @@ def main():
     m5.metric("Big Vol", summary["setup3_count"])
     m6.metric("Post-IPO 4H", summary.get("setup4_count", 0))
     m7.metric("PGK Bottom", summary.get("setup5_count", 0))
+    m8.metric("Darvas Box Ketat", summary.get("setup6_count", 0))
 
     st.markdown(
         f"<p style='color:{FAINT};font-size:0.82rem'>Terakhir update: {data['generated_at_display']} &middot; "
@@ -715,8 +740,8 @@ def main():
     st.sidebar.markdown("**Filter**")
     setup_filter = st.sidebar.multiselect(
         "Kategori",
-        options=["1", "2", "3", "4", "5"],
-        default=["1", "2", "3", "4", "5"],
+        options=["1", "2", "3", "4", "5", "6"],
+        default=["1", "2", "3", "4", "5", "6"],
         format_func=lambda s: CATEGORY_INFO[s]["label"],
     )
     only_new = st.sidebar.checkbox("Hanya tampilkan yang baru", value=False)
@@ -830,6 +855,34 @@ def main():
         "dekat) supaya dianggap sinyal awal rebound. Makin kecil = makin ketat.",
     )
 
+    st.sidebar.markdown("**Filter khusus Darvas Box Ketat (Setup 6)**")
+    darvas_tight_lookback_days = st.sidebar.slider(
+        "Lookback Darvas Box (hari)",
+        min_value=config.DARVAS_TIGHT_LOOKBACK_DAYS_MIN,
+        max_value=config.DARVAS_TIGHT_LOOKBACK_DAYS_MAX,
+        value=config.DARVAS_TIGHT_LOOKBACK_DAYS,
+        step=1,
+        help="Total hari (N) yang dipakai untuk menentukan batas atas/bawah Darvas Box.",
+    )
+    darvas_tight_confirmation_days = st.sidebar.slider(
+        "Hari konfirmasi box (tenang, tanpa rekor baru)",
+        min_value=config.DARVAS_TIGHT_CONFIRMATION_DAYS_MIN,
+        max_value=min(config.DARVAS_TIGHT_CONFIRMATION_DAYS_MAX, darvas_tight_lookback_days - 1),
+        value=min(config.DARVAS_TIGHT_CONFIRMATION_DAYS, darvas_tight_lookback_days - 1),
+        step=1,
+        help="Berapa hari PALING TERAKHIR yang harus sudah tenang (tidak membuat high/low baru "
+        "dibanding sisa lookback sebelumnya) supaya box dianggap matang/valid.",
+    )
+    darvas_tight_max_range_pct = st.sidebar.slider(
+        "Lebar box maksimal (%)",
+        min_value=int(config.DARVAS_TIGHT_MAX_RANGE_PCT_MIN * 100),
+        max_value=int(config.DARVAS_TIGHT_MAX_RANGE_PCT_MAX * 100),
+        value=int(config.DARVAS_TIGHT_MAX_RANGE_PCT * 100),
+        step=1,
+        help="Lebar box (jarak box_top ke box_bottom, relatif terhadap box_bottom) maksimal "
+        "berapa persen supaya dianggap konsolidasi ketat. Makin kecil = makin ketat.",
+    )
+
     st.sidebar.markdown("**Filter umur listing (semua kategori)**")
     max_listing_years = st.sidebar.slider(
         "Maks. umur listing (tahun)",
@@ -894,6 +947,13 @@ def main():
             r["Setup"] != "5"
             or cek_setup5_pgk_live(
                 charts.get(r["Ticker"]), pgk_lookback_days, pgk_tolerance_pct / 100.0
+            )
+        )
+        and (
+            r["Setup"] != "6"
+            or cek_setup6_darvas_tight_live(
+                charts.get(r["Ticker"]), darvas_tight_lookback_days, darvas_tight_confirmation_days,
+                darvas_tight_max_range_pct / 100.0,
             )
         )
         and (

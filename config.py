@@ -310,6 +310,38 @@ PGK_MA_TOLERANCE_MIN = 0.01            # batas bawah slider: 1% (sangat ketat)
 PGK_MA_TOLERANCE_MAX = 0.15            # batas atas slider: 15% (longgar)
 
 # ============================================================
+# SETUP 6 -- DARVAS BOX KETAT (Konsolidasi Sempit, Semua Saham)
+# ============================================================
+# Konsep: BEDA dari Setup 4 (yang khusus saham post-IPO & butuh box berhimpit
+# dengan MA112/224/448). Setup 6 berlaku untuk SEMUA saham -- cukup cari yang
+# sedang membentuk Darvas Box SEMPIT (lebar box kecil, artinya konsolidasi
+# ketat) dalam `lookback_days` hari terakhir, tanpa syarat MA sama sekali.
+# Validasi box (box sudah "tenang"/matang, bukan masih trending) pakai
+# definisi dua-periode yang sama dengan Setup 4 (lihat hitung_darvas_box()
+# di screener.py): confirmation_days hari PALING TERAKHIR tidak boleh
+# membuat high/low baru dibanding sisa lookback_days sebelumnya.
+
+# Lookback Darvas Box Setup 6 (slider di web) -- total hari yang dipakai
+# menghitung box_top/box_bottom.
+DARVAS_TIGHT_LOOKBACK_DAYS = 20        # default slider: 20 hari
+DARVAS_TIGHT_LOOKBACK_DAYS_MIN = 5     # batas bawah slider: 5 hari
+DARVAS_TIGHT_LOOKBACK_DAYS_MAX = 60    # batas atas slider: 60 hari
+
+# Confirmation period (slider di web) -- berapa hari PALING TERAKHIR yang
+# harus sudah "tenang" (tidak membuat high/low baru) supaya box dianggap
+# matang/valid.
+DARVAS_TIGHT_CONFIRMATION_DAYS = 3          # default slider: 3 hari
+DARVAS_TIGHT_CONFIRMATION_DAYS_MIN = 2      # batas bawah slider: 2 hari
+DARVAS_TIGHT_CONFIRMATION_DAYS_MAX = 10     # batas atas slider: 10 hari
+
+# Lebar box MAKSIMUM (persen, relatif terhadap box_bottom) supaya dianggap
+# "ketat"/sempit -- makin kecil, makin sempit konsolidasinya. Slider di web,
+# angka ini cuma default posisi slider.
+DARVAS_TIGHT_MAX_RANGE_PCT = 0.03           # default slider: 3%
+DARVAS_TIGHT_MAX_RANGE_PCT_MIN = 0.01       # batas bawah slider: 1% (sangat ketat)
+DARVAS_TIGHT_MAX_RANGE_PCT_MAX = 0.15       # batas atas slider: 15% (longgar)
+
+# ============================================================
 # DAFTAR EMITEN & LABEL POST-IPO
 # ============================================================
 # NOTE: sebelumnya di sini ada rencana fetch daftar emiten + tanggal IPO
