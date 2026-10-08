@@ -246,6 +246,22 @@ def format_rupiah(v):
     return f"{v:,.0f}".replace(",", ".")
 
 
+def volume_terakhir(charts, ticker):
+    """Volume (lembar) bar terakhir dari data chart; 0 kalau tidak ada."""
+    rows = charts.get(ticker)
+    return (rows[-1].get("volume") or 0) if rows else 0
+
+
+def format_volume(v):
+    if v >= 1e9:
+        return f"{v / 1e9:.1f} M".replace(".", ",")
+    if v >= 1e6:
+        return f"{v / 1e6:.1f} jt".replace(".", ",")
+    if v >= 1e3:
+        return f"{v / 1e3:.0f} rb"
+    return f"{v:.0f}"
+
+
 def get_tp_period(row):
     """
     Ambil angka SMA target (60/100/200) dari row Setup 1. Pakai field TP_Period
@@ -581,7 +597,7 @@ def render_chart(candles, visible_smas, box_lines=None):
 # BARIS HASIL (ringkas + detail saat expand)
 # ============================================================
 @st.fragment
-def render_result_row(row, charts, sma20_tol_pct, big_vol_days, big_vol_ratio, cluster_consistency_days):
+def render_result_row(row, nomor, charts, sma20_tol_pct, big_vol_days, big_vol_ratio, cluster_consistency_days):
     info = CATEGORY_INFO[row["Setup"]]
     tp_pct = row.get("TP_Pot_pct")
     tp_class = "tp-pos" if (tp_pct or 0) >= 0 else "tp-neg"
@@ -607,14 +623,18 @@ def render_result_row(row, charts, sma20_tol_pct, big_vol_days, big_vol_ratio, c
     st.markdown('<div class="row-card">', unsafe_allow_html=True)
     c1, c2, c3, c4, c5 = st.columns([0.5, 1.6, 1.3, 1.2, 1.3])
     with c1:
-        st.markdown(f"<span class='rank'>{row['rank']}</span>", unsafe_allow_html=True)
+        st.markdown(f"<span class='rank'>{nomor}</span>", unsafe_allow_html=True)
     with c2:
         st.markdown(
             f"<span class='ticker'>{row['Ticker']}</span>{new_html}{ketat_html}{konsisten_html}{bigvol_html}{ipo_html}",
             unsafe_allow_html=True,
         )
     with c3:
-        st.markdown(f"<span class='price'>Rp {format_rupiah(row['Close'])}</span>", unsafe_allow_html=True)
+        st.markdown(
+            f"<span class='price'>Rp {format_rupiah(row['Close'])}</span><br>"
+            f"<span class='rank'>Vol {format_volume(volume_terakhir(charts, row['Ticker']))}</span>",
+            unsafe_allow_html=True,
+        )
     with c4:
         st.markdown(f"<span class='{tp_class}'>{format_pct(tp_pct)}</span>", unsafe_allow_html=True)
     with c5:
@@ -998,6 +1018,12 @@ def main():
     min_tp = st.sidebar.slider("Minimal potential (%)", 0, 100, 0, step=5)
     search = st.sidebar.text_input("Cari ticker", "").upper().strip()
 
+    urutan = st.sidebar.selectbox(
+        "Urutkan berdasarkan",
+        ["Volume terbesar", "Potensi TP terbesar"],
+        help="Volume = jumlah lembar yang ditransaksikan pada hari terakhir data.",
+    )
+
     n_show_options = [10, 20, 50, 100, "Semua"]
     n_show = st.sidebar.selectbox("Jumlah hasil ditampilkan", n_show_options, index=1)
 
@@ -1080,17 +1106,20 @@ def main():
         st.info("Tidak ada saham yang cocok dengan filter saat ini. Coba kurangi filter.")
         return
 
+    if urutan == "Volume terbesar":
+        filtered.sort(key=lambda r: volume_terakhir(charts, r["Ticker"]), reverse=True)
+
     shown_count = min(len(filtered), n_show if n_show != "Semua" else len(filtered))
     st.markdown(
         f"<p style='color:{MUTED};font-size:0.88rem'>Menampilkan {shown_count} dari {len(filtered)} hasil, "
-        f"terurut dari potential terbesar.</p>",
+        f"terurut dari {urutan.lower()}.</p>",
         unsafe_allow_html=True,
     )
 
     show_list = filtered if n_show == "Semua" else filtered[: int(n_show)]
 
-    for row in show_list:
-        render_result_row(row, charts, sma20_tol_pct, big_vol_days, big_vol_ratio, cluster_consistency_days)
+    for nomor, row in enumerate(show_list, start=1):
+        render_result_row(row, nomor, charts, sma20_tol_pct, big_vol_days, big_vol_ratio, cluster_consistency_days)
 
     if n_show != "Semua" and len(filtered) > int(n_show):
         st.markdown(

@@ -359,26 +359,23 @@ MA_RAPI_MAX_BAWAH_MA20 = 0.15          # default slider: 15%
 MA_RAPI_MAX_BAWAH_MA20_MIN = 0.02
 MA_RAPI_MAX_BAWAH_MA20_MAX = 0.50
 
-# Default slider di bawah dikalibrasi ke pola yang disukai (contoh RISE, NICL:
-# tren turun lama & dalam, MA melebar seperti kipas) dan membuang contoh yang
-# tidak disukai (AMAG, BNBR, GRPM). Slider tetap bisa dilonggarkan di web.
-
 # Urutan MA20 < MA60 < MA100 < MA200 harus bertahan berapa hari terakhir --
 # menyaring susunan yang baru terbentuk (MA100 baru saja memotong MA200).
-MA_RAPI_CONSISTENCY_DAYS = 60          # default slider: 60 hari
+MA_RAPI_CONSISTENCY_DAYS = 20          # default slider: 20 hari
 MA_RAPI_CONSISTENCY_DAYS_MIN = 1
 MA_RAPI_CONSISTENCY_DAYS_MAX = 60
 
 # Kemiringan MA200 maksimum (persen perubahan dalam MA_RAPI_SLOPE_DAYS hari).
-# 0% = MA200 tidak boleh naik; -5% = MA200 harus ikut turun minimal 5%.
+# 0% = MA200 tidak boleh naik -- buang saham yang MA200-nya masih menanjak
+# sementara MA lain sudah turun.
 MA_RAPI_SLOPE_DAYS = 20                # tetap, tidak jadi slider
-MA_RAPI_MAX_SLOPE_MA200 = -0.05        # default slider: -5%
+MA_RAPI_MAX_SLOPE_MA200 = 0.0          # default slider: 0%
 MA_RAPI_MAX_SLOPE_MA200_MIN = -0.10
 MA_RAPI_MAX_SLOPE_MA200_MAX = 0.05
 
 # Jarak minimum antar MA bersebelahan (MA20-MA60, MA60-MA100, MA100-MA200),
 # relatif MA yang lebih kecil -- buang MA yang menumpuk jadi satu.
-MA_RAPI_MIN_GAP = 0.05                 # default slider: 5%
+MA_RAPI_MIN_GAP = 0.01                 # default slider: 1%
 MA_RAPI_MIN_GAP_MIN = 0.0
 MA_RAPI_MIN_GAP_MAX = 0.10
 
