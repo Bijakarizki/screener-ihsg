@@ -904,19 +904,28 @@ def cek_ma_rapi_konsisten(df, consistency_days):
     return bool(((s20 < s60) & (s60 < s100) & (s100 < s200)).all())
 
 
-def screen_setup7(daily_data, tol_atas=None, max_bawah=None, consistency_days=None):
+def screen_setup7(
+    daily_data, tol_atas=None, max_bawah=None, consistency_days=None,
+    max_slope_ma200=None, min_gap=None,
+):
     """
     Close di bawah MA20 (maks `max_bawah`) atau dekat di atasnya (maks
     `tol_atas`), dengan MA20 < MA60 < MA100 < MA200 rapi selama
-    `consistency_days` hari terakhir. Target: MA besar terdekat di atas harga
-    (MA60, atau MA100/MA200 kalau harga sudah di atas MA60).
+    `consistency_days` hari terakhir, MA200 tidak menanjak lebih dari
+    `max_slope_ma200` dalam MA_RAPI_SLOPE_DAYS hari, dan jarak antar MA
+    bersebelahan minimal `min_gap`. Target: MA besar terdekat di atas harga.
     """
     tol_atas = tol_atas if tol_atas is not None else config.MA_RAPI_TOL_ATAS_MA20
     max_bawah = max_bawah if max_bawah is not None else config.MA_RAPI_MAX_BAWAH_MA20
     consistency_days = consistency_days or config.MA_RAPI_CONSISTENCY_DAYS
+    max_slope_ma200 = (
+        max_slope_ma200 if max_slope_ma200 is not None else config.MA_RAPI_MAX_SLOPE_MA200
+    )
+    min_gap = min_gap if min_gap is not None else config.MA_RAPI_MIN_GAP
+    slope_days = config.MA_RAPI_SLOPE_DAYS
 
     results = []
-    min_bars = max(config.SMA_BESAR) + consistency_days
+    min_bars = max(config.SMA_BESAR) + max(consistency_days, slope_days + 1)
 
     for tkr, df in daily_data.items():
         if len(df) < min_bars:
@@ -927,6 +936,15 @@ def screen_setup7(daily_data, tol_atas=None, max_bawah=None, consistency_days=No
         row = latest(df)
         close = row["Close"]
         ma20, ma60, ma100, ma200 = (row[c] for c in MA_RAPI_COLS)
+
+        ma200_lalu = df.dropna(subset=["Close"])["SMA200"].iloc[-1 - slope_days]
+        slope_ma200 = pct_gap(ma200, ma200_lalu)
+        if np.isnan(slope_ma200) or slope_ma200 > max_slope_ma200:
+            continue
+
+        gap_min = min(pct_gap(ma60, ma20), pct_gap(ma100, ma60), pct_gap(ma200, ma100))
+        if gap_min < min_gap:
+            continue
 
         gap_ma20 = pct_gap(close, ma20)
         if np.isnan(gap_ma20) or gap_ma20 > tol_atas or gap_ma20 < -max_bawah:
@@ -952,6 +970,8 @@ def screen_setup7(daily_data, tol_atas=None, max_bawah=None, consistency_days=No
                 "SMA100": round(ma100, 0),
                 "SMA200": round(ma200, 0),
                 "Gap_MA20_pct": round(gap_ma20 * 100, 2),
+                "Slope_MA200_pct": round(slope_ma200 * 100, 2),
+                "Gap_Min_MA_pct": round(gap_min * 100, 2),
                 "TP_Target": f"SMA{tp_period}",
                 "TP_Period": tp_period,
                 "TP_Val": round(tp_val, 0),

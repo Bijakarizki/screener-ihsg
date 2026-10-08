@@ -401,17 +401,24 @@ def cek_setup6_darvas_tight_live(chart_rows, lookback_days, confirmation_days, m
     return box_range_pct <= max_range_pct
 
 
-def cek_setup7_ma_rapi_live(chart_rows, tol_atas, max_bawah, consistency_days):
+def cek_setup7_ma_rapi_live(chart_rows, tol_atas, max_bawah, consistency_days, max_slope_ma200, min_gap):
     """Versi ringan screen_setup7() (screener.py) dari data chart, untuk slider live Setup 7."""
-    if not chart_rows or len(chart_rows) < consistency_days:
+    slope_days = config.MA_RAPI_SLOPE_DAYS
+    if not chart_rows or len(chart_rows) < max(consistency_days, slope_days + 1):
         return False
     for bar in chart_rows[-consistency_days:]:
         vals = [bar.get(c) for c in ("SMA20", "SMA60", "SMA100", "SMA200")]
         if any(v is None for v in vals) or not (vals[0] < vals[1] < vals[2] < vals[3]):
             return False
     last = chart_rows[-1]
-    close, ma20, ma200 = last.get("close"), last["SMA20"], last["SMA200"]
-    if close is None or not ma20 or close >= ma200:
+    close = last.get("close")
+    ma20, ma60, ma100, ma200 = (last[c] for c in ("SMA20", "SMA60", "SMA100", "SMA200"))
+    if close is None or close >= ma200:
+        return False
+    ma200_lalu = chart_rows[-1 - slope_days].get("SMA200")
+    if not ma200_lalu or (ma200 - ma200_lalu) / ma200_lalu > max_slope_ma200:
+        return False
+    if min((ma60 - ma20) / ma20, (ma100 - ma60) / ma60, (ma200 - ma100) / ma100) < min_gap:
         return False
     gap = (close - ma20) / ma20
     return -max_bawah <= gap <= tol_atas
@@ -680,6 +687,11 @@ def render_result_row(row, charts, sma20_tol_pct, big_vol_days, big_vol_ratio, c
                     f"Rp {format_rupiah(row.get('SMA60'))} < Rp {format_rupiah(row.get('SMA100'))} < "
                     f"Rp {format_rupiah(row.get('SMA200'))}"
                 )
+                if row.get("Slope_MA200_pct") is not None:
+                    st.write(
+                        f"Kemiringan MA200 {config.MA_RAPI_SLOPE_DAYS} hari: {row['Slope_MA200_pct']:+.1f}% "
+                        f"· jarak min. antar MA: {row['Gap_Min_MA_pct']:.1f}%"
+                    )
                 st.write(f"Target: {row['TP_Target']} = Rp {format_rupiah(row['TP_Val'])}")
                 st.write(f"Semua level di atas: {row['Semua_TP']}")
 
@@ -942,7 +954,25 @@ def main():
         max_value=config.MA_RAPI_CONSISTENCY_DAYS_MAX,
         value=config.MA_RAPI_CONSISTENCY_DAYS,
         step=1,
-        help="Urutan MA20 < MA60 < MA100 < MA200 harus terpenuhi setiap hari selama N hari terakhir.",
+        help="Urutan MA20 < MA60 < MA100 < MA200 harus terpenuhi setiap hari selama N hari terakhir. "
+        "Makin besar = buang susunan yang baru terbentuk (MA100 baru saja memotong MA200).",
+    )
+    ma_rapi_max_slope_pct = st.sidebar.slider(
+        f"Kemiringan MA200 maks. ({config.MA_RAPI_SLOPE_DAYS} hari, %)",
+        min_value=config.MA_RAPI_MAX_SLOPE_MA200_MIN * 100,
+        max_value=config.MA_RAPI_MAX_SLOPE_MA200_MAX * 100,
+        value=config.MA_RAPI_MAX_SLOPE_MA200 * 100,
+        step=0.5,
+        help="0% = MA200 tidak boleh naik (buang saham yang MA200-nya masih menanjak). "
+        "Negatif = MA200 harus ikut turun minimal sekian persen.",
+    )
+    ma_rapi_min_gap_pct = st.sidebar.slider(
+        "Jarak min. antar MA (%)",
+        min_value=config.MA_RAPI_MIN_GAP_MIN * 100,
+        max_value=config.MA_RAPI_MIN_GAP_MAX * 100,
+        value=config.MA_RAPI_MIN_GAP * 100,
+        step=0.5,
+        help="Jarak minimum MA20-MA60, MA60-MA100 dan MA100-MA200. Buang MA yang menumpuk jadi satu.",
     )
     ma_rapi_target_filter = st.sidebar.multiselect(
         "Target MA terdekat",
@@ -1031,6 +1061,7 @@ def main():
             or cek_setup7_ma_rapi_live(
                 charts.get(r["Ticker"]), ma_rapi_tol_atas_pct / 100.0,
                 ma_rapi_max_bawah_pct / 100.0, ma_rapi_days,
+                ma_rapi_max_slope_pct / 100.0, ma_rapi_min_gap_pct / 100.0,
             )
         )
         and (
