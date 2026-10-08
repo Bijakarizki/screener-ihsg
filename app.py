@@ -203,6 +203,10 @@ CATEGORY_INFO = {
         "label": "Darvas Box Ketat",
         "desc": "Saham (semua kategori, tanpa syarat MA) sedang membentuk Darvas Box SEMPIT -- lebar box maksimal sekian persen selama N hari terakhir, tanda konsolidasi ketat menjelang breakout.",
     },
+    "7": {
+        "label": "Bawah MA20 Rapi",
+        "desc": "Harga di bawah MA20 atau dekat di atasnya, sementara MA besar tersusun rapi di atas (MA20 < MA60 < MA100 < MA200) beberapa hari terakhir -- target ke MA60.",
+    },
 }
 
 SMA_COLORS = {
@@ -395,6 +399,22 @@ def cek_setup6_darvas_tight_live(chart_rows, lookback_days, confirmation_days, m
         return False
     box_range_pct = (box["box_top"] - box["box_bottom"]) / box["box_bottom"]
     return box_range_pct <= max_range_pct
+
+
+def cek_setup7_ma_rapi_live(chart_rows, tol_atas, max_bawah, consistency_days):
+    """Versi ringan screen_setup7() (screener.py) dari data chart, untuk slider live Setup 7."""
+    if not chart_rows or len(chart_rows) < consistency_days:
+        return False
+    for bar in chart_rows[-consistency_days:]:
+        vals = [bar.get(c) for c in ("SMA20", "SMA60", "SMA100", "SMA200")]
+        if any(v is None for v in vals) or not (vals[0] < vals[1] < vals[2] < vals[3]):
+            return False
+    last = chart_rows[-1]
+    close, ma20, ma60 = last.get("close"), last["SMA20"], last["SMA60"]
+    if close is None or not ma20 or close >= ma60:
+        return False
+    gap = (close - ma20) / ma20
+    return -max_bawah <= gap <= tol_atas
 
 
 def cek_setup4_darvas_live(chart_rows, lookback_days, tolerance, confirmation_days):
@@ -649,6 +669,19 @@ def render_result_row(row, charts, sma20_tol_pct, big_vol_days, big_vol_ratio, c
                     f"(lebar {row.get('Box_Range_pct', 0):.1f}%)"
                 )
                 st.write(f"Target: {row['TP_Target']} = Rp {format_rupiah(row['TP_Val'])}")
+            elif row["Setup"] == "7":
+                posisi = "di bawah" if row.get("Gap_MA20_pct", 0) < 0 else "di atas"
+                st.write(
+                    f"Harga {posisi} MA20 = Rp {format_rupiah(row.get('SMA20'))} "
+                    f"(jarak {row.get('Gap_MA20_pct', 0):+.1f}%)"
+                )
+                st.write(
+                    f"MA20 < MA60 < MA100 < MA200: Rp {format_rupiah(row.get('SMA20'))} < "
+                    f"Rp {format_rupiah(row.get('SMA60'))} < Rp {format_rupiah(row.get('SMA100'))} < "
+                    f"Rp {format_rupiah(row.get('SMA200'))}"
+                )
+                st.write(f"Target: {row['TP_Target']} = Rp {format_rupiah(row['TP_Val'])}")
+                st.write(f"Semua level di atas: {row['Semua_TP']}")
 
             if row.get("Post_IPO_Label"):
                 listing_date = row.get("Listing_Date_Estimasi")
@@ -718,15 +751,17 @@ def main():
     summary = data["summary"]
 
     st.markdown("<br>", unsafe_allow_html=True)
-    m1, m2, m3, m4, m5, m6, m7, m8 = st.columns(8)
+    m1, m2, m3, m4, m5 = st.columns(5)
     m1.metric("Total kandidat", summary["total_count"])
     m2.metric("Baru hari ini", summary["new_count"])
     m3.metric("Potential 4H", summary["setup1_count"])
     m4.metric("Potential 3M", summary["setup2_count"])
     m5.metric("Big Vol", summary["setup3_count"])
+    m6, m7, m8, m9, _ = st.columns(5)
     m6.metric("Post-IPO 4H", summary.get("setup4_count", 0))
     m7.metric("PGK Bottom", summary.get("setup5_count", 0))
     m8.metric("Darvas Box Ketat", summary.get("setup6_count", 0))
+    m9.metric("Bawah MA20 Rapi", summary.get("setup7_count", 0))
 
     st.markdown(
         f"<p style='color:{FAINT};font-size:0.82rem'>Terakhir update: {data['generated_at_display']} &middot; "
@@ -740,8 +775,8 @@ def main():
     st.sidebar.markdown("**Filter**")
     setup_filter = st.sidebar.multiselect(
         "Kategori",
-        options=["1", "2", "3", "4", "5", "6"],
-        default=["1", "2", "3", "4", "5", "6"],
+        options=list(CATEGORY_INFO),
+        default=list(CATEGORY_INFO),
         format_func=lambda s: CATEGORY_INFO[s]["label"],
     )
     only_new = st.sidebar.checkbox("Hanya tampilkan yang baru", value=False)
@@ -883,6 +918,33 @@ def main():
         "berapa persen supaya dianggap konsolidasi ketat. Makin kecil = makin ketat.",
     )
 
+    st.sidebar.markdown("**Filter khusus Bawah MA20 Rapi (Setup 7)**")
+    ma_rapi_tol_atas_pct = st.sidebar.slider(
+        "Maks. di atas MA20 (%)",
+        min_value=int(config.MA_RAPI_TOL_ATAS_MA20_MIN * 100),
+        max_value=int(config.MA_RAPI_TOL_ATAS_MA20_MAX * 100),
+        value=int(config.MA_RAPI_TOL_ATAS_MA20 * 100),
+        step=1,
+        help="Harga boleh sedikit di atas MA20 (masih dianggap 'dekat MA20') maksimal sekian persen. "
+        "0% = harus di bawah atau tepat di MA20.",
+    )
+    ma_rapi_max_bawah_pct = st.sidebar.slider(
+        "Maks. di bawah MA20 (%)",
+        min_value=int(config.MA_RAPI_MAX_BAWAH_MA20_MIN * 100),
+        max_value=int(config.MA_RAPI_MAX_BAWAH_MA20_MAX * 100),
+        value=int(config.MA_RAPI_MAX_BAWAH_MA20 * 100),
+        step=1,
+        help="Seberapa jauh harga boleh di bawah MA20. Makin kecil = makin mepet ke MA20.",
+    )
+    ma_rapi_days = st.sidebar.slider(
+        "Urutan MA rapi bertahan (hari)",
+        min_value=config.MA_RAPI_CONSISTENCY_DAYS_MIN,
+        max_value=config.MA_RAPI_CONSISTENCY_DAYS_MAX,
+        value=config.MA_RAPI_CONSISTENCY_DAYS,
+        step=1,
+        help="Urutan MA20 < MA60 < MA100 < MA200 harus terpenuhi setiap hari selama N hari terakhir.",
+    )
+
     st.sidebar.markdown("**Filter umur listing (semua kategori)**")
     max_listing_years = st.sidebar.slider(
         "Maks. umur listing (tahun)",
@@ -954,6 +1016,13 @@ def main():
             or cek_setup6_darvas_tight_live(
                 charts.get(r["Ticker"]), darvas_tight_lookback_days, darvas_tight_confirmation_days,
                 darvas_tight_max_range_pct / 100.0,
+            )
+        )
+        and (
+            r["Setup"] != "7"
+            or cek_setup7_ma_rapi_live(
+                charts.get(r["Ticker"]), ma_rapi_tol_atas_pct / 100.0,
+                ma_rapi_max_bawah_pct / 100.0, ma_rapi_days,
             )
         )
         and (

@@ -33,17 +33,17 @@ def progress_cb(i, total, batch):
 def load_previous_tickers():
     """Ambil set ticker per setup dari hasil run sebelumnya, untuk deteksi 'penghuni baru'."""
     if not os.path.exists(config.LATEST_RESULT_FILE):
-        return {"1": set(), "2": set(), "3": set(), "4": set(), "5": set()}
+        return {}
     try:
         with open(config.LATEST_RESULT_FILE, "r") as f:
             prev = json.load(f)
-        sets = {"1": set(), "2": set(), "3": set(), "4": set(), "5": set(), "6": set()}
+        sets = {}
         for row in prev.get("results", []):
             sets.setdefault(row["Setup"], set()).add(row["Ticker"])
         return sets
     except Exception as e:
         log(f"Gagal load hasil sebelumnya: {e}")
-        return {"1": set(), "2": set(), "3": set(), "4": set(), "5": set(), "6": set()}
+        return {}
 
 
 def main():
@@ -102,7 +102,11 @@ def main():
     r6 = screener.screen_setup6(daily_data)
     log(f"  -> {len(r6)} kandidat")
 
-    all_results = r1 + r2 + r3 + r4 + r5 + r6
+    log("Menjalankan Setup 7 (Bawah MA20 Rapi) ...")
+    r7 = screener.screen_setup7(daily_data)
+    log(f"  -> {len(r7)} kandidat")
+
+    all_results = r1 + r2 + r3 + r4 + r5 + r6 + r7
 
     # Tempel label estimasi umur listing ("Post-IPO age") ke SEMUA hasil,
     # semua setup -- dihitung dari histori harga masing-masing ticker.
@@ -157,6 +161,7 @@ def main():
             "setup4_count": len(r4),
             "setup5_count": len(r5),
             "setup6_count": len(r6),
+            "setup7_count": len(r7),
             "total_count": len(all_results),
             "new_count": sum(1 for r in all_results if r["is_new"]),
         },

@@ -842,6 +842,76 @@ def screen_setup6(daily_data, lookback_days=None, max_range_pct=None, confirmati
 
 
 # ============================================================
+# SETUP 7 -- BAWAH MA20, MA BESAR RAPI DI ATAS
+# ============================================================
+MA_RAPI_COLS = ["SMA20", "SMA60", "SMA100", "SMA200"]
+
+
+def cek_ma_rapi_konsisten(df, consistency_days):
+    """True kalau MA20 < MA60 < MA100 < MA200 di setiap `consistency_days` bar terakhir."""
+    window = df.dropna(subset=["Close"]).tail(consistency_days)[MA_RAPI_COLS]
+    if len(window) < consistency_days or window.isna().any().any():
+        return False
+    s20, s60, s100, s200 = (window[c] for c in MA_RAPI_COLS)
+    return bool(((s20 < s60) & (s60 < s100) & (s100 < s200)).all())
+
+
+def screen_setup7(daily_data, tol_atas=None, max_bawah=None, consistency_days=None):
+    """
+    Close di bawah MA20 (maks `max_bawah`) atau dekat di atasnya (maks
+    `tol_atas`), dengan MA20 < MA60 < MA100 < MA200 rapi selama
+    `consistency_days` hari terakhir. Target: MA60.
+    """
+    tol_atas = tol_atas if tol_atas is not None else config.MA_RAPI_TOL_ATAS_MA20
+    max_bawah = max_bawah if max_bawah is not None else config.MA_RAPI_MAX_BAWAH_MA20
+    consistency_days = consistency_days or config.MA_RAPI_CONSISTENCY_DAYS
+
+    results = []
+    min_bars = max(config.SMA_BESAR) + consistency_days
+
+    for tkr, df in daily_data.items():
+        if len(df) < min_bars:
+            continue
+        if not cek_ma_rapi_konsisten(df, consistency_days):
+            continue
+
+        row = latest(df)
+        close = row["Close"]
+        ma20, ma60, ma100, ma200 = (row[c] for c in MA_RAPI_COLS)
+
+        gap_ma20 = pct_gap(close, ma20)
+        if np.isnan(gap_ma20) or gap_ma20 > tol_atas or gap_ma20 < -max_bawah:
+            continue
+        if close >= ma60:
+            continue
+
+        tp_pct = pct_gap(ma60, close)
+        semua_tp = " | ".join(
+            f"SMA{p}={row[f'SMA{p}']:.0f} (+{pct_gap(row[f'SMA{p}'], close) * 100:.1f}%)"
+            for p in config.SMA_BESAR
+        )
+
+        results.append(
+            {
+                "Ticker": tkr,
+                "Close": round(close, 0),
+                "SMA20": round(ma20, 0),
+                "SMA60": round(ma60, 0),
+                "SMA100": round(ma100, 0),
+                "SMA200": round(ma200, 0),
+                "Gap_MA20_pct": round(gap_ma20 * 100, 2),
+                "TP_Target": "SMA60",
+                "TP_Val": round(ma60, 0),
+                "TP_Pot_pct": round(tp_pct * 100, 2),
+                "Semua_TP": semua_tp,
+                "Setup": "7",
+                "Setup_Label": "Bawah MA20 Rapi",
+            }
+        )
+    return results
+
+
+# ============================================================
 # CANDLE DATA UNTUK CHART (60 bar terakhir + SMA + volume)
 # ============================================================
 def extract_chart_data(df, n=90):

@@ -342,6 +342,29 @@ DARVAS_TIGHT_MAX_RANGE_PCT_MIN = 0.01       # batas bawah slider: 1% (sangat ket
 DARVAS_TIGHT_MAX_RANGE_PCT_MAX = 0.15       # batas atas slider: 15% (longgar)
 
 # ============================================================
+# SETUP 7 -- BAWAH MA20, MA BESAR RAPI DI ATAS
+# ============================================================
+# Konsep: harga di bawah MA20 (atau dekat di atasnya), sementara MA besar
+# tersusun rapi di atas: MA20 < MA60 < MA100 < MA200. Urutan itu harus
+# bertahan MA_RAPI_CONSISTENCY_DAYS hari terakhir berturut-turut, bukan
+# cuma hari ini. Target profit: MA60 (MA besar terdekat di atas).
+
+# Batas atas: Close boleh di atas MA20 maksimal sekian persen ("dekat MA20").
+MA_RAPI_TOL_ATAS_MA20 = 0.03           # default slider: 3%
+MA_RAPI_TOL_ATAS_MA20_MIN = 0.0
+MA_RAPI_TOL_ATAS_MA20_MAX = 0.10
+
+# Batas bawah: Close maksimal sekian persen di bawah MA20.
+MA_RAPI_MAX_BAWAH_MA20 = 0.15          # default slider: 15%
+MA_RAPI_MAX_BAWAH_MA20_MIN = 0.02
+MA_RAPI_MAX_BAWAH_MA20_MAX = 0.50
+
+# Urutan MA20 < MA60 < MA100 < MA200 harus bertahan berapa hari terakhir.
+MA_RAPI_CONSISTENCY_DAYS = 5           # default slider: 5 hari
+MA_RAPI_CONSISTENCY_DAYS_MIN = 1
+MA_RAPI_CONSISTENCY_DAYS_MAX = 30
+
+# ============================================================
 # DAFTAR EMITEN & LABEL POST-IPO
 # ============================================================
 # NOTE: sebelumnya di sini ada rencana fetch daftar emiten + tanggal IPO
