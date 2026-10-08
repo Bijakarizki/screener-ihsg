@@ -207,6 +207,10 @@ CATEGORY_INFO = {
         "label": "Bawah MA20 Rapi",
         "desc": "Harga di bawah MA20 atau dekat di atasnya, sementara MA besar tersusun rapi di atas (MA20 < MA60 < MA100 < MA200) beberapa hari terakhir -- target ke MA besar terdekat di atas harga.",
     },
+    "8": {
+        "label": "ERL → IRL",
+        "desc": "Harga menyapu likuiditas eksternal (swing low / PWL / PML) lalu ditutup kembali di atasnya, dikonfirmasi CISD, dan sekarang sedang masuk POI (BISI setelah sapuan, atau retest CISD) -- target ke likuiditas internal (SIBI / swing high) terdekat di atas.",
+    },
 }
 
 SMA_COLORS = {
@@ -714,6 +718,25 @@ def render_result_row(row, nomor, charts, sma20_tol_pct, big_vol_days, big_vol_r
                     )
                 st.write(f"Target: {row['TP_Target']} = Rp {format_rupiah(row['TP_Val'])}")
                 st.write(f"Semua level di atas: {row['Semua_TP']}")
+            elif row["Setup"] == "8":
+                st.write(
+                    f"1. ERL tersapu: {row['ERL_Label']} Rp {format_rupiah(row['ERL_Level'])}, "
+                    f"low sapuan Rp {format_rupiah(row['Sweep_Low'])} pada {row['Sweep_Date']} "
+                    f"({row['Sweep_Bars_Ago']} hari lalu)"
+                )
+                st.write(
+                    f"2. CISD {row['CISD_Type']}: close di atas Rp {format_rupiah(row['CISD_Level'])} "
+                    f"pada {row['CISD_Date']}"
+                )
+                posisi_poi = (
+                    "sudah di dalam POI" if row["Dist_POI_pct"] == 0
+                    else f"low {row['Dist_POI_pct']:.1f}% di atas POI"
+                )
+                st.write(
+                    f"3. POI ({row['POI_Type']}): Rp {format_rupiah(row['POI_Bottom'])} - "
+                    f"Rp {format_rupiah(row['POI_Top'])}, {posisi_poi}"
+                )
+                st.write(f"4. Target {row['TP_Target']} = Rp {format_rupiah(row['TP_Val'])}")
 
             if row.get("Post_IPO_Label"):
                 listing_date = row.get("Listing_Date_Estimasi")
@@ -749,6 +772,14 @@ def render_result_row(row, nomor, charts, sma20_tol_pct, big_vol_days, big_vol_r
             box_lines = [
                 ("Box Top", row["Box_Top"], "#ffb020"),
                 ("Box Bottom", row["Box_Bottom"], "#ffb020"),
+            ]
+        elif row["Setup"] == "8":
+            box_lines = [
+                ("Target IRL", row["TP_Val"], NEG),
+                ("CISD", row["CISD_Level"], "#4cc9f0"),
+                ("POI atas", row["POI_Top"], POS),
+                ("POI bawah", row["POI_Bottom"], POS),
+                (f"ERL ({row['ERL_Label']})", row["ERL_Level"], MUTED),
             ]
         render_chart(charts.get(row["Ticker"]), visible_smas, box_lines=box_lines)
 
@@ -789,7 +820,8 @@ def main():
     m3.metric("Potential 4H", summary["setup1_count"])
     m4.metric("Potential 3M", summary["setup2_count"])
     m5.metric("Big Vol", summary["setup3_count"])
-    m6, m7, m8, m9, _ = st.columns(5)
+    m6, m7, m8, m9, m10 = st.columns(5)
+    m10.metric("ERL → IRL", summary.get("setup8_count", 0))
     m6.metric("Post-IPO 4H", summary.get("setup4_count", 0))
     m7.metric("PGK Bottom", summary.get("setup5_count", 0))
     m8.metric("Darvas Box Ketat", summary.get("setup6_count", 0))
@@ -1003,6 +1035,29 @@ def main():
         help="Target = MA besar terdekat di atas harga. Kosongkan semua = tidak difilter.",
     )
 
+    st.sidebar.markdown("**Filter khusus ERL → IRL (Setup 8)**")
+    erl_only_s7 = st.sidebar.checkbox(
+        "Hanya saham Setup 7 (Bawah MA20 Rapi)",
+        value=True,
+        help="Ikut filter Setup 7 di atas. Matikan untuk melihat semua saham yang masuk POI.",
+    )
+    erl_sweep_ago = st.sidebar.slider(
+        "Sapuan ERL maks. (hari lalu)",
+        min_value=config.ERL_SWEEP_MAX_AGO_MIN,
+        max_value=config.ERL_SWEEP_MAX_AGO_MAX,
+        value=config.ERL_SWEEP_MAX_AGO,
+        step=1,
+        help="Low sapuan (low terendah 20 hari terakhir) harus terjadi maksimal sekian hari lalu.",
+    )
+    erl_poi_tol_pct = st.sidebar.slider(
+        "Toleransi masuk POI (%)",
+        min_value=config.ERL_POI_TOL_MIN * 100,
+        max_value=config.ERL_POI_TOL_MAX * 100,
+        value=config.ERL_POI_TOL * 100,
+        step=0.5,
+        help="0% = low hari terakhir harus menyentuh POI. Lebih besar = ikut tampilkan yang hampir menyentuh.",
+    )
+
     st.sidebar.markdown("**Filter umur listing (semua kategori)**")
     max_listing_years = st.sidebar.slider(
         "Maks. umur listing (tahun)",
@@ -1094,6 +1149,21 @@ def main():
             r["Setup"] != "7"
             or not ma_rapi_target_filter
             or get_tp_period(r) in ma_rapi_target_filter
+        )
+        and (
+            r["Setup"] != "8"
+            or (
+                r["Sweep_Bars_Ago"] <= erl_sweep_ago
+                and r["Dist_POI_pct"] <= erl_poi_tol_pct
+                and (
+                    not erl_only_s7
+                    or cek_setup7_ma_rapi_live(
+                        charts.get(r["Ticker"]), ma_rapi_tol_atas_pct / 100.0,
+                        ma_rapi_max_bawah_pct / 100.0, ma_rapi_days,
+                        ma_rapi_max_slope_pct / 100.0, ma_rapi_min_gap_pct / 100.0,
+                    )
+                )
+            )
         )
         and (
             max_listing_years >= 30

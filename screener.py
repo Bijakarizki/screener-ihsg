@@ -985,6 +985,213 @@ def screen_setup7(
 
 
 # ============================================================
+# SETUP 8 -- ERL -> IRL (sisi beli)
+# ============================================================
+def _atr14(h, l, c):
+    prev_c = np.concatenate([[c[0]], c[:-1]])
+    tr = np.maximum(h - l, np.maximum(np.abs(h - prev_c), np.abs(l - prev_c)))
+    return pd.Series(tr).rolling(14, min_periods=1).mean().to_numpy()
+
+
+def _fvg_valid_middle(o, h, l, c, m, bullish):
+    rng = h[m] - l[m]
+    if rng <= 0 or abs(c[m] - o[m]) < 0.5 * rng:
+        return False
+    return c[m] > o[m] if bullish else c[m] < o[m]
+
+
+def _period_lows(keys, l, s, w0):
+    """
+    Low periode (minggu/bulan) tepat sebelum periode bar `s`, kalau belum
+    tersentuh sebelum window w0. Return (level, akhir_periode) atau None.
+    """
+    k_s = keys[s]
+    idx_prev = [i for i in range(s) if keys[i] < k_s]
+    if not idx_prev:
+        return None
+    k_prev = keys[idx_prev[-1]]
+    members = [i for i in idx_prev if keys[i] == k_prev]
+    level = l[members].min()
+    end = members[-1]
+    if end + 1 < w0 and l[end + 1 : w0].min() < level:
+        return None
+    return level, end
+
+
+def deteksi_erl_irl(df, window=None, swing_n=None, ext_lookback=None, reclaim_bars=None,
+                    cisd_wait=None, fvg_min_atr=None, irl_lookback=None):
+    """
+    Deteksi pola ERL -> IRL sisi beli pada data harian `df` (kolom Open/High/
+    Low/Close, index tanggal). Return dict detail atau None. Lihat config.py
+    bagian SETUP 8 untuk definisi tiap langkah.
+    """
+    window = window or config.ERL_WINDOW_DAYS
+    swing_n = swing_n or config.ERL_SWING_N
+    ext_lookback = ext_lookback or config.ERL_EXT_LOOKBACK
+    reclaim_bars = reclaim_bars or config.ERL_RECLAIM_BARS
+    cisd_wait = cisd_wait or config.ERL_CISD_MAX_WAIT
+    fvg_min_atr = fvg_min_atr if fvg_min_atr is not None else config.ERL_FVG_MIN_ATR
+    irl_lookback = irl_lookback or config.ERL_IRL_LOOKBACK
+
+    d = df.dropna(subset=["Open", "High", "Low", "Close"]).tail(max(irl_lookback, ext_lookback + window) + swing_n)
+    n = len(d)
+    if n < window + swing_n * 2 + 5:
+        return None
+    o, h, l, c = (d[k].to_numpy(dtype=float) for k in ("Open", "High", "Low", "Close"))
+    dates = pd.to_datetime(d.index)
+    atr = _atr14(h, l, c)
+
+    # 1. Low sapuan = low terendah dalam window; harus sudah ada bar sesudahnya.
+    w0 = n - window
+    s = w0 + int(np.argmin(l[w0:]))
+    if s >= n - 1:
+        return None
+    low_s = l[s]
+
+    swept = []
+    for i in range(max(swing_n, s - ext_lookback), w0):
+        if i + swing_n >= n:
+            break
+        if l[i] > l[i - swing_n : i].min() or l[i] > l[i + 1 : i + swing_n + 1].min():
+            continue
+        if i + 1 < w0 and l[i + 1 : w0].min() < l[i]:
+            continue
+        if low_s < l[i]:
+            swept.append(("Swing low", l[i], 1))
+    minggu = [tuple(x.isocalendar())[:2] for x in dates]
+    bulan = [(x.year, x.month) for x in dates]
+    for nama, keys, prioritas in (("PWL", minggu, 2), ("PML", bulan, 3)):
+        hasil = _period_lows(keys, l, s, w0)
+        if hasil and low_s < hasil[0]:
+            swept.append((nama, hasil[0], prioritas))
+    if not swept:
+        return None
+
+    swept.sort(key=lambda x: (-x[2], -x[1]))
+    erl_label = " / ".join(dict.fromkeys(x[0] for x in swept))
+    erl_level = swept[0][1]
+    if c[s : min(n, s + reclaim_bars + 1)].max() <= erl_level:
+        return None
+
+    # 2. CISD: close di atas open deretan candle merah yang membuat low.
+    e = s if c[s] < o[s] else s - 1
+    if e < 0 or c[e] >= o[e]:
+        return None
+    b0 = e
+    while b0 - 1 >= 0 and c[b0 - 1] < o[b0 - 1]:
+        b0 -= 1
+    cisd_level = o[b0]
+    j = next((k for k in range(e + 1, min(n, e + cisd_wait + 1)) if c[k] > cisd_level), None)
+    if j is None:
+        return None
+
+    # 3. POI: BISI setelah sapuan yang belum ditembus close; fallback retest CISD.
+    close_now, low_now = c[-1], l[-1]
+    poi = None
+    for i in range(max(s + 1, 2), n):
+        bottom, top = h[i - 2], l[i]
+        if top <= bottom or top - bottom < fvg_min_atr * atr[i - 1]:
+            continue
+        if not _fvg_valid_middle(o, h, l, c, i - 1, True):
+            continue
+        if i + 1 < n and c[i + 1 :].min() < bottom:
+            continue
+        if bottom > close_now:
+            continue
+        jarak = max(close_now - top, 0.0)
+        if poi is None or (jarak, top - bottom) < (poi[0], poi[2] - poi[1]):
+            poi = (jarak, bottom, top, "BISI D1")
+    if poi is None:
+        poi = (None, (low_s + cisd_level) / 2, cisd_level, "Retest CISD")
+    _, poi_bottom, poi_top, poi_type = poi
+
+    # 4. Posisi harga terhadap POI.
+    if close_now < poi_bottom:
+        return None
+    dist_poi = max(low_now - poi_top, 0.0) / poi_top
+
+    # 5. Target IRL: SIBI terdekat di atas harga, fallback swing high terdekat.
+    target = None
+    for i in range(max(2, n - irl_lookback), n):
+        bottom, top = h[i], l[i - 2]
+        if top <= bottom or top - bottom < fvg_min_atr * atr[i - 1]:
+            continue
+        if not _fvg_valid_middle(o, h, l, c, i - 1, False):
+            continue
+        if i + 1 < n and c[i + 1 :].max() > top:
+            continue
+        if bottom > close_now and (target is None or bottom < target[0]):
+            target = (bottom, "SIBI D1")
+    if target is None:
+        for i in range(max(swing_n, n - irl_lookback), n - swing_n):
+            if h[i] < h[i - swing_n : i].max() or h[i] < h[i + 1 : i + swing_n + 1].max():
+                continue
+            if h[i + 1 :].max() > h[i] or h[i] <= close_now:
+                continue
+            if target is None or h[i] < target[0]:
+                target = (h[i], "Swing high")
+    if target is None:
+        return None
+
+    return {
+        "erl_label": erl_label,
+        "erl_level": erl_level,
+        "sweep_low": low_s,
+        "sweep_date": dates[s],
+        "sweep_ago": n - 1 - s,
+        "cisd_level": cisd_level,
+        "cisd_date": dates[j],
+        "cisd_fast": j == e + 1,
+        "poi_bottom": poi_bottom,
+        "poi_top": poi_top,
+        "poi_type": poi_type,
+        "dist_poi": dist_poi,
+        "target": target[0],
+        "target_type": target[1],
+    }
+
+
+def screen_setup8(daily_data):
+    """
+    Setup 8 ERL -> IRL. Disimpan dengan batas paling longgar (ERL_SWEEP_MAX_AGO_MAX,
+    ERL_POI_TOL_MAX); dashboard menyaring ulang lewat Sweep_Bars_Ago & Dist_POI_pct.
+    """
+    results = []
+    for tkr, df in daily_data.items():
+        try:
+            r = deteksi_erl_irl(df)
+        except Exception:
+            continue
+        if r is None or r["sweep_ago"] > config.ERL_SWEEP_MAX_AGO_MAX or r["dist_poi"] > config.ERL_POI_TOL_MAX:
+            continue
+        close = latest(df)["Close"]
+        results.append(
+            {
+                "Ticker": tkr,
+                "Close": round(close, 0),
+                "ERL_Label": r["erl_label"],
+                "ERL_Level": round(r["erl_level"], 0),
+                "Sweep_Low": round(r["sweep_low"], 0),
+                "Sweep_Date": r["sweep_date"].strftime("%Y-%m-%d"),
+                "Sweep_Bars_Ago": r["sweep_ago"],
+                "CISD_Level": round(r["cisd_level"], 0),
+                "CISD_Date": r["cisd_date"].strftime("%Y-%m-%d"),
+                "CISD_Type": "fast" if r["cisd_fast"] else "slow",
+                "POI_Bottom": round(r["poi_bottom"], 0),
+                "POI_Top": round(r["poi_top"], 0),
+                "POI_Type": r["poi_type"],
+                "Dist_POI_pct": round(r["dist_poi"] * 100, 2),
+                "TP_Target": f"IRL ({r['target_type']})",
+                "TP_Val": round(r["target"], 0),
+                "TP_Pot_pct": round(pct_gap(r["target"], close) * 100, 2),
+                "Setup": "8",
+                "Setup_Label": "ERL → IRL",
+            }
+        )
+    return results
+
+
+# ============================================================
 # CANDLE DATA UNTUK CHART (60 bar terakhir + SMA + volume)
 # ============================================================
 def extract_chart_data(df, n=90):

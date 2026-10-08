@@ -380,6 +380,38 @@ MA_RAPI_MIN_GAP_MIN = 0.0
 MA_RAPI_MIN_GAP_MAX = 0.10
 
 # ============================================================
+# SETUP 8 -- ERL -> IRL (konsep ICT, sisi beli, data harian)
+# ============================================================
+# 1. ERL tersapu: low terendah ERL_WINDOW_DAYS hari terakhir menembus level
+#    likuiditas eksternal yang terbentuk sebelum window itu (swing low harian,
+#    PWL, PML), lalu ada close kembali di atas level dalam ERL_RECLAIM_BARS hari.
+# 2. CISD: close di atas open deretan candle merah yang membuat low tersebut,
+#    maksimal ERL_CISD_MAX_WAIT hari setelah deretan itu.
+# 3. POI: BISI (FVG bullish) yang terbentuk setelah sapuan dan belum ditembus
+#    close; kalau tidak ada, zona retest CISD (tengah kaki pembalikan s/d CISD).
+# 4. Masuk POI: low hari terakhir menyentuh POI (toleransi slider), close
+#    masih di atas batas bawah POI.
+# 5. Target IRL: SIBI (FVG bearish) terdekat di atas harga yang belum terisi;
+#    kalau tidak ada, swing high terdekat di atas harga.
+# Screener menyimpan hasil dengan batas paling longgar (*_MAX); dashboard
+# menyaring ulang memakai slider (default di bawah).
+ERL_WINDOW_DAYS = 20              # range tempat mencari low sapuan
+ERL_SWING_N = 3                   # swing low/high: sekian candle kiri & kanan
+ERL_EXT_LOOKBACK = 60             # umur maksimum swing low yang dianggap ERL
+ERL_RECLAIM_BARS = 3              # close kembali di atas level maksimal sekian hari
+ERL_CISD_MAX_WAIT = 10            # CISD harus terjadi maksimal sekian hari
+ERL_FVG_MIN_ATR = 0.1             # ukuran FVG minimal (x ATR14)
+ERL_IRL_LOOKBACK = 120            # umur maksimum SIBI / swing high untuk target
+
+ERL_SWEEP_MAX_AGO = 10            # default slider: sapuan maksimal 10 hari lalu
+ERL_SWEEP_MAX_AGO_MIN = 1
+ERL_SWEEP_MAX_AGO_MAX = ERL_WINDOW_DAYS
+
+ERL_POI_TOL = 0.01                # default slider: low boleh 1% di atas POI
+ERL_POI_TOL_MIN = 0.0
+ERL_POI_TOL_MAX = 0.05
+
+# ============================================================
 # DAFTAR EMITEN & LABEL POST-IPO
 # ============================================================
 # NOTE: sebelumnya di sini ada rencana fetch daftar emiten + tanggal IPO

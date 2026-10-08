@@ -132,7 +132,18 @@ def main():
     r7 = screener.screen_setup7(daily_data)
     log(f"  -> {len(r7)} kandidat")
 
-    all_results = r1 + r2 + r3 + r4 + r5 + r6 + r7
+    log("Menjalankan Setup 8 (ERL -> IRL) ...")
+    r8 = screener.screen_setup8(daily_data)
+    tickers_s7 = {r["Ticker"] for r in r7}
+    r8_default = [
+        r for r in r8
+        if r["Ticker"] in tickers_s7
+        and r["Sweep_Bars_Ago"] <= config.ERL_SWEEP_MAX_AGO
+        and r["Dist_POI_pct"] <= config.ERL_POI_TOL * 100
+    ]
+    log(f"  -> {len(r8)} kandidat (longgar), {len(r8_default)} sesuai default dashboard")
+
+    all_results = r1 + r2 + r3 + r4 + r5 + r6 + r7 + r8
 
     # Tempel label estimasi umur listing ("Post-IPO age") ke SEMUA hasil,
     # semua setup -- dihitung dari histori harga masing-masing ticker.
@@ -188,6 +199,7 @@ def main():
             "setup5_count": len(r5),
             "setup6_count": len(r6),
             "setup7_count": len(r7),
+            "setup8_count": len(r8_default),
             "total_count": len(all_results),
             "new_count": sum(1 for r in all_results if r["is_new"]),
         },
