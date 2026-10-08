@@ -46,6 +46,32 @@ def load_previous_tickers():
         return {}
 
 
+def get_all_tickers():
+    """
+    Semua emiten BEI dari screener Yahoo (cache ke EMITEN_JKT_CACHE_FILE),
+    digabung dengan config.SAHAM_IHSG_SEED. Kalau Yahoo gagal, pakai cache
+    terakhir; kalau cache juga tidak ada, cukup daftar statis.
+    """
+    codes = set(config.SAHAM_IHSG_SEED)
+    try:
+        jkt = screener.fetch_tickers_jkt()
+        log(f"Daftar emiten dari Yahoo: {len(jkt)} saham.")
+        with open(config.EMITEN_JKT_CACHE_FILE, "w") as f:
+            json.dump({"fetched_at": datetime.now().isoformat(), "codes": jkt}, f)
+    except Exception as e:
+        log(f"Gagal ambil daftar emiten dari Yahoo ({e}), coba pakai cache ...")
+        jkt = []
+        if os.path.exists(config.EMITEN_JKT_CACHE_FILE):
+            with open(config.EMITEN_JKT_CACHE_FILE, "r") as f:
+                jkt = json.load(f).get("codes", [])
+            log(f"Pakai cache daftar emiten: {len(jkt)} saham.")
+    tambahan = set(jkt) - codes
+    if tambahan:
+        log(f"{len(tambahan)} emiten baru di luar daftar statis: {', '.join(sorted(tambahan))}")
+    codes |= set(jkt)
+    return [c + ".JK" for c in sorted(codes)]
+
+
 def main():
     log("=== MULAI SCREENING ===")
     os.makedirs(config.DATA_DIR, exist_ok=True)
@@ -53,7 +79,7 @@ def main():
 
     prev_tickers = load_previous_tickers()
 
-    tickers_yf = config.TICKERS_YF
+    tickers_yf = get_all_tickers()
     log(f"Total ticker yang akan di-download: {len(tickers_yf)}")
 
     daily_data = screener.download_daily(

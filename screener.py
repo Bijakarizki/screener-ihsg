@@ -56,6 +56,54 @@ def make_session():
 
 
 # ============================================================
+# DAFTAR SEMUA EMITEN BEI (Yahoo Finance screener, exchange JKT)
+# ============================================================
+def fetch_tickers_jkt(page_size=250, max_pages=10, max_retries=3, pause=3.0):
+    """
+    Ambil kode semua saham di Bursa Jakarta dari screener Yahoo Finance
+    (maks 250 per request, jadi diambil per halaman). Return list kode
+    tanpa ".JK"; raise kalau gagal supaya caller bisa fallback.
+    """
+    import re
+
+    from yfinance import EquityQuery
+
+    query = EquityQuery("eq", ["exchange", "JKT"])
+    pola_saham = re.compile(r"^([A-Z]{4})\.JK$")
+    codes = set()
+    total = None
+
+    for page in range(max_pages):
+        offset = page * page_size
+        if total is not None and offset >= total:
+            break
+        for attempt in range(1, max_retries + 1):
+            try:
+                res = yf.screen(
+                    query, offset=offset, size=page_size,
+                    sortField="ticker", sortAsc=True, session=make_session(),
+                )
+                break
+            except Exception:
+                if attempt == max_retries:
+                    raise
+                time.sleep(pause * (2 ** attempt) + random.uniform(0, 2))
+        total = res.get("total", 0)
+        quotes = res.get("quotes", [])
+        if not quotes:
+            break
+        for q in quotes:
+            m = pola_saham.match(q.get("symbol", ""))
+            if m:
+                codes.add(m.group(1))
+        time.sleep(pause)
+
+    if len(codes) < 500:
+        raise ValueError(f"Cuma dapat {len(codes)} emiten dari Yahoo, dicurigai tidak lengkap")
+    return sorted(codes)
+
+
+# ============================================================
 # DOWNLOAD DATA
 # ============================================================
 def download_daily(
@@ -860,7 +908,8 @@ def screen_setup7(daily_data, tol_atas=None, max_bawah=None, consistency_days=No
     """
     Close di bawah MA20 (maks `max_bawah`) atau dekat di atasnya (maks
     `tol_atas`), dengan MA20 < MA60 < MA100 < MA200 rapi selama
-    `consistency_days` hari terakhir. Target: MA60.
+    `consistency_days` hari terakhir. Target: MA besar terdekat di atas harga
+    (MA60, atau MA100/MA200 kalau harga sudah di atas MA60).
     """
     tol_atas = tol_atas if tol_atas is not None else config.MA_RAPI_TOL_ATAS_MA20
     max_bawah = max_bawah if max_bawah is not None else config.MA_RAPI_MAX_BAWAH_MA20
@@ -882,13 +931,16 @@ def screen_setup7(daily_data, tol_atas=None, max_bawah=None, consistency_days=No
         gap_ma20 = pct_gap(close, ma20)
         if np.isnan(gap_ma20) or gap_ma20 > tol_atas or gap_ma20 < -max_bawah:
             continue
-        if close >= ma60:
+
+        tp_period, tp_val = find_nearest_sma_besar_above(row, close)
+        if tp_period is None:
             continue
 
-        tp_pct = pct_gap(ma60, close)
+        tp_pct = pct_gap(tp_val, close)
         semua_tp = " | ".join(
             f"SMA{p}={row[f'SMA{p}']:.0f} (+{pct_gap(row[f'SMA{p}'], close) * 100:.1f}%)"
             for p in config.SMA_BESAR
+            if row[f"SMA{p}"] > close
         )
 
         results.append(
@@ -900,8 +952,9 @@ def screen_setup7(daily_data, tol_atas=None, max_bawah=None, consistency_days=No
                 "SMA100": round(ma100, 0),
                 "SMA200": round(ma200, 0),
                 "Gap_MA20_pct": round(gap_ma20 * 100, 2),
-                "TP_Target": "SMA60",
-                "TP_Val": round(ma60, 0),
+                "TP_Target": f"SMA{tp_period}",
+                "TP_Period": tp_period,
+                "TP_Val": round(tp_val, 0),
                 "TP_Pot_pct": round(tp_pct * 100, 2),
                 "Semua_TP": semua_tp,
                 "Setup": "7",

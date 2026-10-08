@@ -205,7 +205,7 @@ CATEGORY_INFO = {
     },
     "7": {
         "label": "Bawah MA20 Rapi",
-        "desc": "Harga di bawah MA20 atau dekat di atasnya, sementara MA besar tersusun rapi di atas (MA20 < MA60 < MA100 < MA200) beberapa hari terakhir -- target ke MA60.",
+        "desc": "Harga di bawah MA20 atau dekat di atasnya, sementara MA besar tersusun rapi di atas (MA20 < MA60 < MA100 < MA200) beberapa hari terakhir -- target ke MA besar terdekat di atas harga.",
     },
 }
 
@@ -410,8 +410,8 @@ def cek_setup7_ma_rapi_live(chart_rows, tol_atas, max_bawah, consistency_days):
         if any(v is None for v in vals) or not (vals[0] < vals[1] < vals[2] < vals[3]):
             return False
     last = chart_rows[-1]
-    close, ma20, ma60 = last.get("close"), last["SMA20"], last["SMA60"]
-    if close is None or not ma20 or close >= ma60:
+    close, ma20, ma200 = last.get("close"), last["SMA20"], last["SMA200"]
+    if close is None or not ma20 or close >= ma200:
         return False
     gap = (close - ma20) / ma20
     return -max_bawah <= gap <= tol_atas
@@ -944,6 +944,14 @@ def main():
         step=1,
         help="Urutan MA20 < MA60 < MA100 < MA200 harus terpenuhi setiap hari selama N hari terakhir.",
     )
+    ma_rapi_target_filter = st.sidebar.multiselect(
+        "Target MA terdekat",
+        options=[60, 100, 200],
+        default=[60, 100, 200],
+        format_func=lambda p: f"SMA{p}",
+        key="ma_rapi_target",
+        help="Target = MA besar terdekat di atas harga. Kosongkan semua = tidak difilter.",
+    )
 
     st.sidebar.markdown("**Filter umur listing (semua kategori)**")
     max_listing_years = st.sidebar.slider(
@@ -1024,6 +1032,11 @@ def main():
                 charts.get(r["Ticker"]), ma_rapi_tol_atas_pct / 100.0,
                 ma_rapi_max_bawah_pct / 100.0, ma_rapi_days,
             )
+        )
+        and (
+            r["Setup"] != "7"
+            or not ma_rapi_target_filter
+            or get_tp_period(r) in ma_rapi_target_filter
         )
         and (
             max_listing_years >= 30

@@ -380,5 +380,6 @@ MA_RAPI_CONSISTENCY_DAYS_MAX = 30
 # DATA OUTPUT
 # ============================================================
 DATA_DIR = "data"
+EMITEN_JKT_CACHE_FILE = "data/emiten_jkt.json"   # cache daftar semua emiten BEI dari Yahoo
 LATEST_RESULT_FILE = "data/latest_result.json"
 HISTORY_DIR = "data/history"
