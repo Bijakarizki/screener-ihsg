@@ -192,11 +192,12 @@ def download_daily(
                     # single ticker fallback
                     df = raw.copy()
 
-                df = df.dropna(how="all")
+                # Yahoo kadang mengirim bar berisi volume saja tanpa harga; buang supaya
+                # bar terakhir chart & semua setup memakai hari dengan harga lengkap.
+                df = df.rename(columns=str.title).dropna(subset=["Open", "High", "Low", "Close"])
                 if df.empty or len(df) < 30:
                     continue
 
-                df = df.rename(columns=str.title)
                 df.index = pd.to_datetime(df.index)
                 df.sort_index(inplace=True)
 

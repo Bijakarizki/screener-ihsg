@@ -92,6 +92,8 @@ def main():
         period=config.YF_PERIOD,
     )
     log(f"Berhasil download {len(daily_data)} / {len(tickers_yf)} ticker.")
+    data_until = max((df.index[-1] for df in daily_data.values()), default=None)
+    log(f"Data harga terakhir: {data_until.date() if data_until is not None else '-'}")
 
     success_ratio = len(daily_data) / len(tickers_yf)
     if len(daily_data) == 0:
@@ -194,6 +196,7 @@ def main():
     output = {
         "generated_at": now.isoformat(),
         "generated_at_display": now.strftime("%d %B %Y, %H:%M WIB"),
+        "data_until": data_until.strftime("%Y-%m-%d") if data_until is not None else None,
         "total_ticker_discan": len(daily_data),
         "total_ticker_terdaftar": len(tickers_yf),
         "summary": {

@@ -850,7 +850,8 @@ def main():
 
     st.markdown(
         f"<p style='color:{FAINT};font-size:0.82rem'>Terakhir update: {data['generated_at_display']} &middot; "
-        f"{data['total_ticker_discan']}/{data['total_ticker_terdaftar']} saham berhasil discan</p>",
+        + (f"data harga sampai {data['data_until']} &middot; " if data.get("data_until") else "")
+        + f"{data['total_ticker_discan']}/{data['total_ticker_terdaftar']} saham berhasil discan</p>",
         unsafe_allow_html=True,
     )
 
