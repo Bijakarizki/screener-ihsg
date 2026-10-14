@@ -412,6 +412,41 @@ ERL_POI_TOL_MIN = 0.0
 ERL_POI_TOL_MAX = 0.05
 
 # ============================================================
+# SETUP 9 -- SQUEEZE DI DASAR
+# ============================================================
+# Setelah tren turun panjang, MA3/5/10/20/60 menyatu rapat dan harga duduk
+# di gumpalan itu, sementara MA100 & MA200 masih jauh di atas (target).
+# Screener menyimpan hasil dengan batas *_MAX / *_MIN paling longgar;
+# dashboard menyaring ulang memakai slider (default di bawah).
+SQZ_MA_CLUSTER = [3, 5, 10, 20, 60]
+
+SQZ_MAX_SPREAD = 0.05            # default slider: spread MA3..MA60 maks 5%
+SQZ_MAX_SPREAD_MIN = 0.01
+SQZ_MAX_SPREAD_MAX = 0.10
+
+SQZ_MAX_DIST_CLUSTER = 0.05      # default slider: harga maks 5% dari tengah gumpalan
+SQZ_MAX_DIST_CLUSTER_MIN = 0.0
+SQZ_MAX_DIST_CLUSTER_MAX = 0.10
+
+SQZ_MIN_TP = 0.08                # default slider: target (MA100/200) min 8% di atas harga
+SQZ_MIN_TP_MIN = 0.05
+SQZ_MIN_TP_MAX = 0.50
+
+SQZ_MIN_DIST_MA200 = 0.20        # default slider: MA200 min 20% di atas harga
+SQZ_MIN_DIST_MA200_MIN = 0.10
+SQZ_MIN_DIST_MA200_MAX = 1.00
+
+# Saham suspend / tidak likuid (harga diam) otomatis punya MA menyatu --
+# wajib bergerak (high > low) minimal sekian hari dari SQZ_ACTIVE_WINDOW hari.
+SQZ_ACTIVE_WINDOW = 20
+SQZ_MIN_ACTIVE_DAYS = 15
+
+SQZ_BIGVOL_DAYS = 60             # cek big volume dalam sekian hari (tetap)
+SQZ_BIGVOL_RATIO = 3.0           # default slider: volume >= 3x rata-rata 20 hari
+SQZ_BIGVOL_RATIO_MIN = 1.5
+SQZ_BIGVOL_RATIO_MAX = 10.0
+
+# ============================================================
 # DAFTAR EMITEN & LABEL POST-IPO
 # ============================================================
 # NOTE: sebelumnya di sini ada rencana fetch daftar emiten + tanggal IPO

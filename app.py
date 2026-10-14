@@ -211,6 +211,10 @@ CATEGORY_INFO = {
         "label": "ERL → IRL",
         "desc": "Harga menyapu likuiditas eksternal (swing low / PWL / PML) lalu ditutup kembali di atasnya, dikonfirmasi CISD, dan sekarang sedang masuk POI (BISI setelah sapuan, atau retest CISD) -- target ke likuiditas internal (SIBI / swing high) terdekat di atas.",
     },
+    "9": {
+        "label": "Squeeze di Dasar",
+        "desc": "Setelah tren turun panjang, MA3/5/10/20/60 menyatu rapat dan harga duduk di gumpalan itu, sementara MA100 dan MA200 masih jauh di atas -- fase dasar sebelum breakout, target ke MA100 (atau MA200).",
+    },
 }
 
 SMA_COLORS = {
@@ -737,6 +741,21 @@ def render_result_row(row, nomor, charts, sma20_tol_pct, big_vol_days, big_vol_r
                     f"Rp {format_rupiah(row['POI_Top'])}, {posisi_poi}"
                 )
                 st.write(f"4. Target {row['TP_Target']} = Rp {format_rupiah(row['TP_Val'])}")
+            elif row["Setup"] == "9":
+                st.write(
+                    "MA3 / MA5 / MA10 / MA20 / MA60: "
+                    + " / ".join(f"Rp {format_rupiah(row.get(f'SMA{p}'))}" for p in config.SQZ_MA_CLUSTER)
+                    + f" (menyatu dalam {row['Spread_MA_pct']:.1f}%)"
+                )
+                st.write(
+                    f"Harga {row['Gap_Cluster_pct']:+.1f}% dari tengah gumpalan MA · "
+                    f"MA200 Rp {format_rupiah(row['SMA200'])} ({row['Dist_MA200_pct']:+.0f}% dari harga)"
+                )
+                st.write(
+                    f"Volume terbesar {config.SQZ_BIGVOL_DAYS} hari terakhir: "
+                    f"{row['MaxVol_Ratio']:.1f}x rata-rata 20 hari"
+                )
+                st.write(f"Target: {row['TP_Target']} = Rp {format_rupiah(row['TP_Val'])}")
 
             if row.get("Post_IPO_Label"):
                 listing_date = row.get("Listing_Date_Estimasi")
@@ -751,8 +770,8 @@ def render_result_row(row, nomor, charts, sma20_tol_pct, big_vol_days, big_vol_r
                 "SMA112", "SMA224", "SMA448",
             ]
             default_sma = (
-                ["SMA112", "SMA224", "SMA448"]
-                if row["Setup"] == "4"
+                ["SMA112", "SMA224", "SMA448"] if row["Setup"] == "4"
+                else ["SMA3", "SMA5", "SMA10", "SMA20", "SMA60", "SMA100", "SMA200"] if row["Setup"] == "9"
                 else ["SMA20", "SMA60", "SMA100", "SMA200"]
             )
             visible_smas = st.multiselect(
@@ -822,6 +841,8 @@ def main():
     m5.metric("Big Vol", summary["setup3_count"])
     m6, m7, m8, m9, m10 = st.columns(5)
     m10.metric("ERL → IRL", summary.get("setup8_count", 0))
+    m11, _, _, _, _ = st.columns(5)
+    m11.metric("Squeeze di Dasar", summary.get("setup9_count", 0))
     m6.metric("Post-IPO 4H", summary.get("setup4_count", 0))
     m7.metric("PGK Bottom", summary.get("setup5_count", 0))
     m8.metric("Darvas Box Ketat", summary.get("setup6_count", 0))
@@ -1058,6 +1079,51 @@ def main():
         help="0% = low hari terakhir harus menyentuh POI. Lebih besar = ikut tampilkan yang hampir menyentuh.",
     )
 
+    st.sidebar.markdown("**Filter khusus Squeeze di Dasar (Setup 9)**")
+    sqz_spread_pct = st.sidebar.slider(
+        "Spread MA3-MA60 maks. (%)",
+        min_value=config.SQZ_MAX_SPREAD_MIN * 100,
+        max_value=config.SQZ_MAX_SPREAD_MAX * 100,
+        value=config.SQZ_MAX_SPREAD * 100,
+        step=0.5,
+        help="Seberapa rapat MA3, MA5, MA10, MA20 dan MA60 harus menyatu. Makin kecil = makin rapat.",
+    )
+    sqz_dist_pct = st.sidebar.slider(
+        "Harga maks. dari gumpalan MA (%)",
+        min_value=config.SQZ_MAX_DIST_CLUSTER_MIN * 100,
+        max_value=config.SQZ_MAX_DIST_CLUSTER_MAX * 100,
+        value=config.SQZ_MAX_DIST_CLUSTER * 100,
+        step=0.5,
+        help="Jarak harga (ke atas atau ke bawah) dari rata-rata kelima MA itu.",
+    )
+    sqz_min_tp_pct = st.sidebar.slider(
+        "Target MA100/200 min. di atas harga (%)",
+        min_value=int(config.SQZ_MIN_TP_MIN * 100),
+        max_value=int(config.SQZ_MIN_TP_MAX * 100),
+        value=int(config.SQZ_MIN_TP * 100),
+        step=1,
+    )
+    sqz_min_ma200_pct = st.sidebar.slider(
+        "MA200 min. di atas harga (%)",
+        min_value=int(config.SQZ_MIN_DIST_MA200_MIN * 100),
+        max_value=int(config.SQZ_MIN_DIST_MA200_MAX * 100),
+        value=int(config.SQZ_MIN_DIST_MA200 * 100),
+        step=5,
+        help="Tanda tren turun panjang: harga masih jauh di bawah MA200.",
+    )
+    sqz_need_bigvol = st.sidebar.checkbox(
+        f"Pernah big volume ({config.SQZ_BIGVOL_DAYS} hari terakhir)", value=False, key="sqz_bigvol",
+    )
+    sqz_bigvol_ratio = st.sidebar.slider(
+        "Big volume minimal (x rata-rata 20 hari)",
+        min_value=config.SQZ_BIGVOL_RATIO_MIN,
+        max_value=config.SQZ_BIGVOL_RATIO_MAX,
+        value=config.SQZ_BIGVOL_RATIO,
+        step=0.5,
+        disabled=not sqz_need_bigvol,
+        key="sqz_bigvol_ratio",
+    )
+
     st.sidebar.markdown("**Filter umur listing (semua kategori)**")
     max_listing_years = st.sidebar.slider(
         "Maks. umur listing (tahun)",
@@ -1163,6 +1229,16 @@ def main():
                         ma_rapi_max_slope_pct / 100.0, ma_rapi_min_gap_pct / 100.0,
                     )
                 )
+            )
+        )
+        and (
+            r["Setup"] != "9"
+            or (
+                r["Spread_MA_pct"] <= sqz_spread_pct
+                and abs(r["Gap_Cluster_pct"]) <= sqz_dist_pct
+                and r["TP_Pot_pct"] >= sqz_min_tp_pct
+                and r["Dist_MA200_pct"] >= sqz_min_ma200_pct
+                and (not sqz_need_bigvol or r["MaxVol_Ratio"] >= sqz_bigvol_ratio)
             )
         )
         and (

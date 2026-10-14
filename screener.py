@@ -1192,6 +1192,83 @@ def screen_setup8(daily_data):
 
 
 # ============================================================
+# SETUP 9 -- SQUEEZE DI DASAR
+# ============================================================
+def screen_setup9(daily_data):
+    """
+    MA3/5/10/20/60 menyatu, harga di gumpalan itu, MA100/MA200 jauh di atas.
+    Disimpan dengan batas slider paling longgar; dashboard menyaring ulang
+    lewat Spread_MA_pct, Gap_Cluster_pct, TP_Pot_pct, Dist_MA200_pct, MaxVol_Ratio.
+    """
+    results = []
+    min_bars = max(config.SMA_BESAR) + 5
+    for tkr, df in daily_data.items():
+        if len(df) < min_bars:
+            continue
+        row = latest(df)
+        close = row["Close"]
+        cluster = [row.get(f"SMA{p}", np.nan) for p in config.SQZ_MA_CLUSTER]
+        ma100, ma200 = row.get("SMA100", np.nan), row.get("SMA200", np.nan)
+        if np.isnan(cluster).any() or np.isnan(ma100) or np.isnan(ma200) or close <= 0:
+            continue
+
+        aktif = df.dropna(subset=["Close"]).tail(config.SQZ_ACTIVE_WINDOW)
+        if int((aktif["High"] > aktif["Low"]).sum()) < config.SQZ_MIN_ACTIVE_DAYS:
+            continue
+
+        mid = float(np.mean(cluster))
+        spread = (max(cluster) - min(cluster)) / mid
+        gap_cluster = close / mid - 1
+        dist_ma200 = ma200 / close - 1
+        if (
+            spread > config.SQZ_MAX_SPREAD_MAX
+            or abs(gap_cluster) > config.SQZ_MAX_DIST_CLUSTER_MAX
+            or dist_ma200 < config.SQZ_MIN_DIST_MA200_MIN
+            or ma100 <= max(cluster)
+        ):
+            continue
+
+        tp_period, tp_val = (100, ma100) if ma100 > close else (200, ma200)
+        tp_pct = tp_val / close - 1
+        if tp_pct < config.SQZ_MIN_TP_MIN:
+            continue
+
+        recent = df.dropna(subset=["Close"]).tail(config.SQZ_BIGVOL_DAYS)
+        ratio = (recent["Volume"] / recent["VolSMA20"]).replace([np.inf, -np.inf], np.nan)
+        max_vol_ratio = float(ratio.max()) if ratio.notna().any() else 0.0
+
+        results.append(
+            {
+                "Ticker": tkr,
+                "Close": round(close, 0),
+                **{f"SMA{p}": round(v, 0) for p, v in zip(config.SQZ_MA_CLUSTER, cluster)},
+                "SMA100": round(ma100, 0),
+                "SMA200": round(ma200, 0),
+                "Spread_MA_pct": round(spread * 100, 2),
+                "Gap_Cluster_pct": round(gap_cluster * 100, 2),
+                "Dist_MA200_pct": round(dist_ma200 * 100, 2),
+                "MaxVol_Ratio": round(max_vol_ratio, 1),
+                "TP_Target": f"SMA{tp_period}",
+                "TP_Period": tp_period,
+                "TP_Val": round(tp_val, 0),
+                "TP_Pot_pct": round(tp_pct * 100, 2),
+                "Setup": "9",
+                "Setup_Label": "Squeeze di Dasar",
+            }
+        )
+    return results
+
+
+def lolos_default_setup9(r):
+    return (
+        r["Spread_MA_pct"] <= config.SQZ_MAX_SPREAD * 100
+        and abs(r["Gap_Cluster_pct"]) <= config.SQZ_MAX_DIST_CLUSTER * 100
+        and r["TP_Pot_pct"] >= config.SQZ_MIN_TP * 100
+        and r["Dist_MA200_pct"] >= config.SQZ_MIN_DIST_MA200 * 100
+    )
+
+
+# ============================================================
 # CANDLE DATA UNTUK CHART (60 bar terakhir + SMA + volume)
 # ============================================================
 def extract_chart_data(df, n=90):

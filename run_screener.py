@@ -143,7 +143,12 @@ def main():
     ]
     log(f"  -> {len(r8)} kandidat (longgar), {len(r8_default)} sesuai default dashboard")
 
-    all_results = r1 + r2 + r3 + r4 + r5 + r6 + r7 + r8
+    log("Menjalankan Setup 9 (Squeeze di Dasar) ...")
+    r9 = screener.screen_setup9(daily_data)
+    r9_default = [r for r in r9 if screener.lolos_default_setup9(r)]
+    log(f"  -> {len(r9)} kandidat (longgar), {len(r9_default)} sesuai default dashboard")
+
+    all_results = r1 + r2 + r3 + r4 + r5 + r6 + r7 + r8 + r9
 
     # Tempel label estimasi umur listing ("Post-IPO age") ke SEMUA hasil,
     # semua setup -- dihitung dari histori harga masing-masing ticker.
@@ -200,6 +205,7 @@ def main():
             "setup6_count": len(r6),
             "setup7_count": len(r7),
             "setup8_count": len(r8_default),
+            "setup9_count": len(r9_default),
             "total_count": len(all_results),
             "new_count": sum(1 for r in all_results if r["is_new"]),
         },
