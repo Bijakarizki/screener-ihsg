@@ -213,7 +213,7 @@ CATEGORY_INFO = {
     },
     "9": {
         "label": "Squeeze di Dasar",
-        "desc": "Setelah tren turun panjang, MA3/5/10/20/60 menyatu rapat dan harga duduk di gumpalan itu, sementara MA100 dan MA200 masih jauh di atas -- fase dasar sebelum breakout, target ke MA100 (atau MA200).",
+        "desc": "Setelah tren turun panjang, MA3/5/10 menyatu rapat dan harga duduk di gumpalan itu, MA20 dekat di atasnya, sementara MA besar (60/100/200) masih di atas -- fase dasar sebelum naik, target ke MA besar terdekat yang jaraknya cukup.",
     },
 }
 
@@ -743,10 +743,16 @@ def render_result_row(row, nomor, charts, sma20_tol_pct, big_vol_days, big_vol_r
                 st.write(f"4. Target {row['TP_Target']} = Rp {format_rupiah(row['TP_Val'])}")
             elif row["Setup"] == "9":
                 st.write(
-                    "MA3 / MA5 / MA10 / MA20 / MA60: "
+                    "MA3 / MA5 / MA10: "
                     + " / ".join(f"Rp {format_rupiah(row.get(f'SMA{p}'))}" for p in config.SQZ_MA_CLUSTER)
                     + f" (menyatu dalam {row['Spread_MA_pct']:.1f}%)"
                 )
+                if row.get("Gap_MA20_pct") is not None and row.get("Spread_Ketat_pct") is not None:
+                    st.write(
+                        f"MA20 Rp {format_rupiah(row.get('SMA20'))} ({row['Gap_MA20_pct']:+.1f}% dari gumpalan) · "
+                        f"MA60 Rp {format_rupiah(row.get('SMA60'))} · MA3 s/d MA60 menyatu dalam "
+                        f"{row['Spread_Ketat_pct']:.1f}%"
+                    )
                 st.write(
                     f"Harga {row['Gap_Cluster_pct']:+.1f}% dari tengah gumpalan MA · "
                     f"MA200 Rp {format_rupiah(row['SMA200'])} ({row['Dist_MA200_pct']:+.0f}% dari harga)"
@@ -1081,13 +1087,20 @@ def main():
     )
 
     st.sidebar.markdown("**Filter khusus Squeeze di Dasar (Setup 9)**")
+    sqz_longgar = st.sidebar.checkbox(
+        "Longgar: cukup MA3/5/10 menyatu (pola LAJU)",
+        value=False,
+        key="sqz_longgar",
+        help="Mati (default) = MA3, MA5, MA10, MA20 dan MA60 semuanya harus menyatu (pola STRK). "
+        "Aktif = cukup MA3/5/10 yang menyatu, MA20 sejajar atau sedikit di atas gumpalan.",
+    )
     sqz_spread_pct = st.sidebar.slider(
-        "Spread MA3-MA60 maks. (%)",
+        "Spread gumpalan MA maks. (%)",
         min_value=config.SQZ_MAX_SPREAD_MIN * 100,
         max_value=config.SQZ_MAX_SPREAD_MAX * 100,
         value=config.SQZ_MAX_SPREAD * 100,
         step=0.5,
-        help="Seberapa rapat MA3, MA5, MA10, MA20 dan MA60 harus menyatu. Makin kecil = makin rapat.",
+        help="Seberapa rapat MA3 s/d MA60 (atau cukup MA3/5/10 di mode longgar) harus menyatu. Makin kecil = makin rapat.",
     )
     sqz_dist_pct = st.sidebar.slider(
         "Harga maks. dari gumpalan MA (%)",
@@ -1095,10 +1108,19 @@ def main():
         max_value=config.SQZ_MAX_DIST_CLUSTER_MAX * 100,
         value=config.SQZ_MAX_DIST_CLUSTER * 100,
         step=0.5,
-        help="Jarak harga (ke atas atau ke bawah) dari rata-rata kelima MA itu.",
+        help="Jarak harga (ke atas atau ke bawah) dari rata-rata MA3/5/10.",
+    )
+    sqz_ma20_gap_pct = st.sidebar.slider(
+        "MA20 maks. dari gumpalan (%)",
+        min_value=config.SQZ_MAX_MA20_GAP_MIN * 100,
+        max_value=config.SQZ_MAX_MA20_GAP_MAX * 100,
+        value=config.SQZ_MAX_MA20_GAP * 100,
+        step=0.5,
+        disabled=not sqz_longgar,
+        help="Khusus mode longgar: seberapa jauh MA20 boleh di atas rata-rata MA3/5/10.",
     )
     sqz_min_tp_pct = st.sidebar.slider(
-        "Target MA100/200 min. di atas harga (%)",
+        "Target MA besar min. di atas harga (%)",
         min_value=int(config.SQZ_MIN_TP_MIN * 100),
         max_value=int(config.SQZ_MIN_TP_MAX * 100),
         value=int(config.SQZ_MIN_TP * 100),
@@ -1235,9 +1257,14 @@ def main():
         and (
             r["Setup"] != "9"
             or (
-                r["Spread_MA_pct"] <= sqz_spread_pct
+                (
+                    r["Spread_MA_pct"] <= sqz_spread_pct
+                    and config.SQZ_MIN_MA20_GAP * 100 <= r.get("Gap_MA20_pct", 0) <= sqz_ma20_gap_pct
+                    if sqz_longgar
+                    else r.get("Spread_Ketat_pct", r["Spread_MA_pct"]) <= sqz_spread_pct
+                )
                 and abs(r["Gap_Cluster_pct"]) <= sqz_dist_pct
-                and r["TP_Pot_pct"] >= sqz_min_tp_pct
+                and (r.get("TP_L_Pot_pct", r["TP_Pot_pct"]) if sqz_longgar else r["TP_Pot_pct"]) >= sqz_min_tp_pct
                 and r["Dist_MA200_pct"] >= sqz_min_ma200_pct
                 and (not sqz_need_bigvol or r["MaxVol_Ratio"] >= sqz_bigvol_ratio)
             )
@@ -1248,6 +1275,13 @@ def main():
             or r["Post_IPO_Days"] <= max_listing_years * 365
         )
     ]
+
+    if sqz_longgar:
+        filtered = [
+            {**r, **{k: r.get(f"TP_L_{k[3:]}", r.get(k)) for k in ("TP_Target", "TP_Period", "TP_Val", "TP_Pot_pct")}}
+            if r["Setup"] == "9" else r
+            for r in filtered
+        ]
 
     if not filtered:
         st.info("Tidak ada saham yang cocok dengan filter saat ini. Coba kurangi filter.")

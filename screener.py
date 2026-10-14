@@ -1195,11 +1195,17 @@ def screen_setup8(daily_data):
 # ============================================================
 # SETUP 9 -- SQUEEZE DI DASAR
 # ============================================================
+def _spread(vals):
+    mid = float(np.mean(vals))
+    return (max(vals) - min(vals)) / mid, mid
+
+
 def screen_setup9(daily_data):
     """
-    MA3/5/10/20/60 menyatu, harga di gumpalan itu, MA100/MA200 jauh di atas.
-    Disimpan dengan batas slider paling longgar; dashboard menyaring ulang
-    lewat Spread_MA_pct, Gap_Cluster_pct, TP_Pot_pct, Dist_MA200_pct, MaxVol_Ratio.
+    MA3/5/10 menyatu, harga di gumpalan itu, MA20 dekat, MA besar jauh di atas.
+    Disimpan dengan batas slider paling longgar; dashboard menyaring ulang lewat
+    Spread_MA_pct, Gap_Cluster_pct, Gap_MA20_pct, Spread_Ketat_pct, TP_Pot_pct,
+    Dist_MA200_pct, MaxVol_Ratio.
     """
     results = []
     min_bars = max(config.SMA_BESAR) + 5
@@ -1208,31 +1214,43 @@ def screen_setup9(daily_data):
             continue
         row = latest(df)
         close = row["Close"]
-        cluster = [row.get(f"SMA{p}", np.nan) for p in config.SQZ_MA_CLUSTER]
-        ma100, ma200 = row.get("SMA100", np.nan), row.get("SMA200", np.nan)
-        if np.isnan(cluster).any() or np.isnan(ma100) or np.isnan(ma200) or close <= 0:
+        ma = {p: row.get(f"SMA{p}", np.nan) for p in config.SQZ_MA_CLUSTER_KETAT + config.SMA_BESAR}
+        if any(np.isnan(v) for v in ma.values()) or close <= 0:
             continue
 
         aktif = df.dropna(subset=["Close"]).tail(config.SQZ_ACTIVE_WINDOW)
         if int((aktif["High"] > aktif["Low"]).sum()) < config.SQZ_MIN_ACTIVE_DAYS:
             continue
 
-        mid = float(np.mean(cluster))
-        spread = (max(cluster) - min(cluster)) / mid
+        spread, mid = _spread([ma[p] for p in config.SQZ_MA_CLUSTER])
+        spread_ketat, _ = _spread([ma[p] for p in config.SQZ_MA_CLUSTER_KETAT])
         gap_cluster = close / mid - 1
-        dist_ma200 = ma200 / close - 1
+        gap_ma20 = ma[20] / mid - 1
+        dist_ma200 = ma[200] / close - 1
         if (
             spread > config.SQZ_MAX_SPREAD_MAX
             or abs(gap_cluster) > config.SQZ_MAX_DIST_CLUSTER_MAX
+            or abs(gap_ma20) > config.SQZ_MAX_MA20_GAP_MAX
             or dist_ma200 < config.SQZ_MIN_DIST_MA200_MIN
-            or ma100 <= max(cluster)
+            or ma[100] <= max(ma[p] for p in config.SQZ_MA_CLUSTER + [20])
         ):
             continue
 
-        tp_period, tp_val = (100, ma100) if ma100 > close else (200, ma200)
-        tp_pct = tp_val / close - 1
-        if tp_pct < config.SQZ_MIN_TP_MIN:
+        # Target = MA besar terdekat di atas harga. Versi ketat: MA60 bagian dari
+        # gumpalan, jadi target dari MA100/200; versi longgar: MA60 ikut dihitung.
+        def _target(periods):
+            cand = [(ma[p], p) for p in periods if ma[p] > close]
+            if not cand:
+                return None
+            val, period = min(cand)
+            return val, period, val / close - 1
+
+        t_ketat = _target([p for p in config.SMA_BESAR if p not in config.SQZ_MA_CLUSTER_KETAT])
+        t_longgar = _target(config.SMA_BESAR)
+        if not any(t and t[2] >= config.SQZ_MIN_TP_MIN for t in (t_ketat, t_longgar)):
             continue
+        tp_val, tp_period, tp_pct = t_ketat or (0.0, 0, 0.0)
+        tpl_val, tpl_period, tpl_pct = t_longgar or (0.0, 0, 0.0)
 
         recent = df.dropna(subset=["Close"]).tail(config.SQZ_BIGVOL_DAYS)
         ratio = (recent["Volume"] / recent["VolSMA20"]).replace([np.inf, -np.inf], np.nan)
@@ -1242,17 +1260,21 @@ def screen_setup9(daily_data):
             {
                 "Ticker": tkr,
                 "Close": round(close, 0),
-                **{f"SMA{p}": round(v, 0) for p, v in zip(config.SQZ_MA_CLUSTER, cluster)},
-                "SMA100": round(ma100, 0),
-                "SMA200": round(ma200, 0),
+                **{f"SMA{p}": round(ma[p], 0) for p in config.SQZ_MA_CLUSTER_KETAT + config.SMA_BESAR},
                 "Spread_MA_pct": round(spread * 100, 2),
+                "Spread_Ketat_pct": round(spread_ketat * 100, 2),
                 "Gap_Cluster_pct": round(gap_cluster * 100, 2),
+                "Gap_MA20_pct": round(gap_ma20 * 100, 2),
                 "Dist_MA200_pct": round(dist_ma200 * 100, 2),
                 "MaxVol_Ratio": round(max_vol_ratio, 1),
                 "TP_Target": f"SMA{tp_period}",
                 "TP_Period": tp_period,
                 "TP_Val": round(tp_val, 0),
                 "TP_Pot_pct": round(tp_pct * 100, 2),
+                "TP_L_Target": f"SMA{tpl_period}",
+                "TP_L_Period": tpl_period,
+                "TP_L_Val": round(tpl_val, 0),
+                "TP_L_Pot_pct": round(tpl_pct * 100, 2),
                 "Setup": "9",
                 "Setup_Label": "Squeeze di Dasar",
             }
@@ -1260,12 +1282,29 @@ def screen_setup9(daily_data):
     return results
 
 
-def lolos_default_setup9(r):
+def lolos_setup9(r, spread_max, dist_max, min_tp, min_ma200, longgar=False, ma20_gap_max=None, bigvol_ratio=None):
+    """Filter Setup 9 (semua dalam persen); dipakai run_screener & dashboard."""
+    if longgar:
+        ok_bentuk = (
+            r["Spread_MA_pct"] <= spread_max
+            and config.SQZ_MIN_MA20_GAP * 100 <= r["Gap_MA20_pct"] <= ma20_gap_max
+        )
+    else:
+        ok_bentuk = r["Spread_Ketat_pct"] <= spread_max
+    tp = r["TP_L_Pot_pct"] if longgar else r["TP_Pot_pct"]
     return (
-        r["Spread_MA_pct"] <= config.SQZ_MAX_SPREAD * 100
-        and abs(r["Gap_Cluster_pct"]) <= config.SQZ_MAX_DIST_CLUSTER * 100
-        and r["TP_Pot_pct"] >= config.SQZ_MIN_TP * 100
-        and r["Dist_MA200_pct"] >= config.SQZ_MIN_DIST_MA200 * 100
+        ok_bentuk
+        and abs(r["Gap_Cluster_pct"]) <= dist_max
+        and tp >= min_tp
+        and r["Dist_MA200_pct"] >= min_ma200
+        and (bigvol_ratio is None or r["MaxVol_Ratio"] >= bigvol_ratio)
+    )
+
+
+def lolos_default_setup9(r):
+    return lolos_setup9(
+        r, config.SQZ_MAX_SPREAD * 100, config.SQZ_MAX_DIST_CLUSTER * 100,
+        config.SQZ_MIN_TP * 100, config.SQZ_MIN_DIST_MA200 * 100,
     )
 
 

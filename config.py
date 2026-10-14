@@ -414,13 +414,17 @@ ERL_POI_TOL_MAX = 0.05
 # ============================================================
 # SETUP 9 -- SQUEEZE DI DASAR
 # ============================================================
-# Setelah tren turun panjang, MA3/5/10/20/60 menyatu rapat dan harga duduk
-# di gumpalan itu, sementara MA100 & MA200 masih jauh di atas (target).
+# Setelah tren turun panjang, MA menyatu rapat dan harga duduk di gumpalan
+# itu, sementara MA besar masih di atas sebagai target.
+# - Default (ketat): MA3/5/10/20/60 semuanya menyatu.
+# - Longgar (opsi di web): cukup MA3/5/10 menyatu; MA20 sejajar atau di atas
+#   gumpalan (min SQZ_MIN_MA20_GAP, maks slider SQZ_MAX_MA20_GAP).
 # Screener menyimpan hasil dengan batas *_MAX / *_MIN paling longgar;
 # dashboard menyaring ulang memakai slider (default di bawah).
-SQZ_MA_CLUSTER = [3, 5, 10, 20, 60]
+SQZ_MA_CLUSTER = [3, 5, 10]           # gumpalan inti yang wajib menyatu
+SQZ_MA_CLUSTER_KETAT = [3, 5, 10, 20, 60]
 
-SQZ_MAX_SPREAD = 0.05            # default slider: spread MA3..MA60 maks 5%
+SQZ_MAX_SPREAD = 0.05            # default slider: spread gumpalan maks 5%
 SQZ_MAX_SPREAD_MIN = 0.01
 SQZ_MAX_SPREAD_MAX = 0.10
 
@@ -428,7 +432,14 @@ SQZ_MAX_DIST_CLUSTER = 0.05      # default slider: harga maks 5% dari tengah gum
 SQZ_MAX_DIST_CLUSTER_MIN = 0.0
 SQZ_MAX_DIST_CLUSTER_MAX = 0.10
 
-SQZ_MIN_TP = 0.08                # default slider: target (MA100/200) min 8% di atas harga
+SQZ_MIN_MA20_GAP = -0.01         # longgar: MA20 tidak boleh lebih dari 1% di bawah gumpalan
+SQZ_MAX_MA20_GAP = 0.10          # default slider: MA20 maks 10% dari tengah gumpalan MA3/5/10
+SQZ_MAX_MA20_GAP_MIN = 0.0
+SQZ_MAX_MA20_GAP_MAX = 0.20
+
+# Target = MA besar (60/100/200) terdekat di atas harga; jaraknya harus
+# minimal SQZ_MIN_TP supaya masih ada ruang naik sebelum hambatan pertama.
+SQZ_MIN_TP = 0.08                # default slider: target min 8% di atas harga
 SQZ_MIN_TP_MIN = 0.05
 SQZ_MIN_TP_MAX = 0.50
 
