@@ -150,7 +150,12 @@ def main():
     r9_default = [r for r in r9 if screener.lolos_default_setup9(r)]
     log(f"  -> {len(r9)} kandidat (longgar), {len(r9_default)} sesuai default dashboard")
 
-    all_results = r1 + r2 + r3 + r4 + r5 + r6 + r7 + r8 + r9
+    log("Menjalankan Setup 10 (Mepet di Bawah MA20) ...")
+    r10 = screener.screen_setup10(daily_data)
+    r10_default = [r for r in r10 if screener.lolos_default_setup10(r)]
+    log(f"  -> {len(r10)} kandidat (longgar), {len(r10_default)} sesuai default dashboard")
+
+    all_results = r1 + r2 + r3 + r4 + r5 + r6 + r7 + r8 + r9 + r10
 
     # Tempel label estimasi umur listing ("Post-IPO age") ke SEMUA hasil,
     # semua setup -- dihitung dari histori harga masing-masing ticker.
@@ -209,6 +214,7 @@ def main():
             "setup7_count": len(r7),
             "setup8_count": len(r8_default),
             "setup9_count": len(r9_default),
+            "setup10_count": len(r10_default),
             "total_count": len(all_results),
             "new_count": sum(1 for r in all_results if r["is_new"]),
         },

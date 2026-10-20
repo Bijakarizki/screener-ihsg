@@ -1309,6 +1309,125 @@ def lolos_default_setup9(r):
 
 
 # ============================================================
+# SETUP 10 -- MEPET DI BAWAH MA20 (pola FILM)
+# ============================================================
+def _streak(mask):
+    """Jumlah True berturut-turut dari ujung akhir array boolean."""
+    n = 0
+    for v in mask[::-1]:
+        if not v:
+            break
+        n += 1
+    return n
+
+
+def screen_setup10(daily_data):
+    """
+    MA3/5/10 menempel, MA20 jelas di atasnya, MA60/100/200 di atas MA20.
+    Disimpan dengan batas slider paling longgar; dashboard menyaring ulang lewat
+    Spread_Avg_pct, Spread_pct, Gap20_Min_pct, Gap20_pct, Gap_Cluster_pct,
+    Streak_Days / Streak_Rapi_Days, TP_Pot_pct.
+    """
+    results = []
+    cols = [f"SMA{p}" for p in (3, 5, 10, 20, 60, 100, 200)]
+    min_bars = max(config.SMA_BESAR) + config.MEPET_STREAK_MAX
+    for tkr, df in daily_data.items():
+        d = df.dropna(subset=["Close"])
+        if len(d) < min_bars:
+            continue
+        w = d.tail(config.MEPET_STREAK_MAX)
+        if w[cols].isna().any().any():
+            continue
+        aktif = d.tail(config.SQZ_ACTIVE_WINDOW)
+        if int((aktif["High"] > aktif["Low"]).sum()) < config.SQZ_MIN_ACTIVE_DAYS:
+            continue
+
+        kecil = w[["SMA3", "SMA5", "SMA10"]]
+        top = kecil.max(axis=1)
+        mid = kecil.mean(axis=1)
+        spread = ((top - kecil.min(axis=1)) / mid).to_numpy()
+        gap20 = (w["SMA20"] / top - 1).to_numpy()
+        besar_atas = ((w["SMA60"] > w["SMA20"]) & (w["SMA100"] > w["SMA20"]) & (w["SMA200"] > w["SMA20"])).to_numpy()
+        rapi = ((w["SMA60"] < w["SMA100"]) & (w["SMA100"] < w["SMA200"])).to_numpy()
+        dasar = (gap20 > 0) & besar_atas
+
+        k = config.MEPET_SPREAD_DAYS
+        spread_avg = float(spread[-k:].mean())
+        gap20_min = float(gap20[-k:].min())
+        row = w.iloc[-1]
+        close = float(row["Close"])
+        gap_cluster = close / float(mid.iloc[-1]) - 1
+        targets = [float(row[f"SMA{p}"]) for p in config.SMA_BESAR if row[f"SMA{p}"] > close]
+        if not targets:
+            continue
+        tp_val = min(targets)
+        tp_period = next(p for p in config.SMA_BESAR if float(row[f"SMA{p}"]) == tp_val)
+        tp_pct = tp_val / close - 1
+
+        if (
+            spread_avg > config.MEPET_SPREAD_AVG_MAX
+            or spread[-1] > config.MEPET_SPREAD_TODAY_MAX
+            or gap20_min < config.MEPET_GAP20_MIN_MIN
+            or gap20[-1] > config.MEPET_GAP20_MAX_MAX
+            or abs(gap_cluster) > config.MEPET_DIST_CLUSTER_MAX
+            or not dasar[-1]
+            or tp_pct < config.MEPET_MIN_TP_MIN
+        ):
+            continue
+
+        recent = d.tail(config.SQZ_BIGVOL_DAYS)
+        ratio = (recent["Volume"] / recent["VolSMA20"]).replace([np.inf, -np.inf], np.nan)
+        max_vol_ratio = float(ratio.max()) if ratio.notna().any() else 0.0
+
+        results.append(
+            {
+                "Ticker": tkr,
+                "Close": round(close, 0),
+                **{c: round(float(row[c]), 0) for c in cols},
+                "Spread_pct": round(float(spread[-1]) * 100, 2),
+                "Spread_Avg_pct": round(spread_avg * 100, 2),
+                "Gap20_pct": round(float(gap20[-1]) * 100, 2),
+                "Gap20_Min_pct": round(gap20_min * 100, 2),
+                "Gap_Cluster_pct": round(gap_cluster * 100, 2),
+                "Streak_Days": _streak(dasar),
+                "Streak_Rapi_Days": _streak(dasar & rapi),
+                "MaxVol_Ratio": round(max_vol_ratio, 1),
+                "TP_Target": f"SMA{tp_period}",
+                "TP_Period": tp_period,
+                "TP_Val": round(tp_val, 0),
+                "TP_Pot_pct": round(tp_pct * 100, 2),
+                "Setup": "10",
+                "Setup_Label": "Mepet di Bawah MA20",
+            }
+        )
+    return results
+
+
+def lolos_setup10(r, spread_avg, spread_today, gap20_min, gap20_max, dist, streak_days, min_tp,
+                  wajib_rapi=True, bigvol_ratio=None):
+    """Filter Setup 10 (semua dalam persen / hari); dipakai run_screener & dashboard."""
+    streak = r["Streak_Rapi_Days"] if wajib_rapi else r["Streak_Days"]
+    return (
+        r["Spread_Avg_pct"] <= spread_avg
+        and r["Spread_pct"] <= spread_today
+        and r["Gap20_Min_pct"] >= gap20_min
+        and r["Gap20_pct"] <= gap20_max
+        and abs(r["Gap_Cluster_pct"]) <= dist
+        and streak >= streak_days
+        and r["TP_Pot_pct"] >= min_tp
+        and (bigvol_ratio is None or r["MaxVol_Ratio"] >= bigvol_ratio)
+    )
+
+
+def lolos_default_setup10(r):
+    return lolos_setup10(
+        r, config.MEPET_SPREAD_AVG * 100, config.MEPET_SPREAD_TODAY * 100, config.MEPET_GAP20_MIN * 100,
+        config.MEPET_GAP20_MAX * 100, config.MEPET_DIST_CLUSTER * 100, config.MEPET_STREAK_DAYS,
+        config.MEPET_MIN_TP * 100,
+    )
+
+
+# ============================================================
 # CANDLE DATA UNTUK CHART (60 bar terakhir + SMA + volume)
 # ============================================================
 def extract_chart_data(df, n=90):

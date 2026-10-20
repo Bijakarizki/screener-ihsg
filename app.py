@@ -215,6 +215,10 @@ CATEGORY_INFO = {
         "label": "Squeeze di Dasar",
         "desc": "Setelah tren turun panjang, MA3/5/10 menyatu rapat dan harga duduk di gumpalan itu, MA20 dekat di atasnya, sementara MA besar (60/100/200) masih di atas -- fase dasar sebelum naik, target ke MA besar terdekat yang jaraknya cukup.",
     },
+    "10": {
+        "label": "Mepet di Bawah MA20",
+        "desc": "MA3/5/10 menempel rapat dan harga berjalan di gumpalan itu, MA20 tetap jelas di atasnya, dan MA60/100/200 semuanya di atas MA20 tersusun rapi seperti tangga yang sudah bertahan lama (pola FILM) -- target ke MA besar terdekat.",
+    },
 }
 
 SMA_COLORS = {
@@ -762,6 +766,25 @@ def render_result_row(row, nomor, charts, sma20_tol_pct, big_vol_days, big_vol_r
                     f"{row['MaxVol_Ratio']:.1f}x rata-rata 20 hari"
                 )
                 st.write(f"Target: {row['TP_Target']} = Rp {format_rupiah(row['TP_Val'])}")
+            elif row["Setup"] == "10":
+                st.write(
+                    "MA3 / MA5 / MA10: "
+                    + " / ".join(f"Rp {format_rupiah(row.get(f'SMA{p}'))}" for p in (3, 5, 10))
+                    + f" (spread hari ini {row['Spread_pct']:.1f}%, rata-rata {config.MEPET_SPREAD_DAYS} hari "
+                    f"{row['Spread_Avg_pct']:.1f}%)"
+                )
+                st.write(
+                    f"MA20 Rp {format_rupiah(row.get('SMA20'))}, {row['Gap20_pct']:.1f}% di atas gumpalan · "
+                    f"MA60 / MA100 / MA200: Rp {format_rupiah(row.get('SMA60'))} / "
+                    f"Rp {format_rupiah(row.get('SMA100'))} / Rp {format_rupiah(row.get('SMA200'))}"
+                )
+                st.write(
+                    f"Tangga MA bertahan {row['Streak_Days']} hari "
+                    f"(tersusun rapi MA60 < MA100 < MA200: {row['Streak_Rapi_Days']} hari) · "
+                    f"harga {row['Gap_Cluster_pct']:+.1f}% dari gumpalan · "
+                    f"volume terbesar {config.SQZ_BIGVOL_DAYS} hari: {row['MaxVol_Ratio']:.1f}x"
+                )
+                st.write(f"Target: {row['TP_Target']} = Rp {format_rupiah(row['TP_Val'])}")
 
             if row.get("Post_IPO_Label"):
                 listing_date = row.get("Listing_Date_Estimasi")
@@ -777,7 +800,7 @@ def render_result_row(row, nomor, charts, sma20_tol_pct, big_vol_days, big_vol_r
             ]
             default_sma = (
                 ["SMA112", "SMA224", "SMA448"] if row["Setup"] == "4"
-                else ["SMA3", "SMA5", "SMA10", "SMA20", "SMA60", "SMA100", "SMA200"] if row["Setup"] == "9"
+                else ["SMA3", "SMA5", "SMA10", "SMA20", "SMA60", "SMA100", "SMA200"] if row["Setup"] in ("9", "10")
                 else ["SMA20", "SMA60", "SMA100", "SMA200"]
             )
             visible_smas = st.multiselect(
@@ -847,8 +870,9 @@ def main():
     m5.metric("Big Vol", summary["setup3_count"])
     m6, m7, m8, m9, m10 = st.columns(5)
     m10.metric("ERL → IRL", summary.get("setup8_count", 0))
-    m11, _, _, _, _ = st.columns(5)
+    m11, m12, _, _, _ = st.columns(5)
     m11.metric("Squeeze di Dasar", summary.get("setup9_count", 0))
+    m12.metric("Mepet di Bawah MA20", summary.get("setup10_count", 0))
     m6.metric("Post-IPO 4H", summary.get("setup4_count", 0))
     m7.metric("PGK Bottom", summary.get("setup5_count", 0))
     m8.metric("Darvas Box Ketat", summary.get("setup6_count", 0))
@@ -1147,6 +1171,54 @@ def main():
         key="sqz_bigvol_ratio",
     )
 
+    st.sidebar.markdown("**Filter khusus Mepet di Bawah MA20 (Setup 10)**")
+    mepet_spread_avg = st.sidebar.slider(
+        f"Rata-rata spread MA3/5/10 {config.MEPET_SPREAD_DAYS} hari maks. (%)",
+        min_value=config.MEPET_SPREAD_AVG_MIN * 100, max_value=config.MEPET_SPREAD_AVG_MAX * 100,
+        value=config.MEPET_SPREAD_AVG * 100, step=0.5,
+        help="Seberapa rapat MA3/5/10 menempel, dirata-rata beberapa hari terakhir (bukan cuma hari ini).",
+    )
+    mepet_spread_today = st.sidebar.slider(
+        "Spread MA3/5/10 hari ini maks. (%)",
+        min_value=config.MEPET_SPREAD_TODAY_MIN * 100, max_value=config.MEPET_SPREAD_TODAY_MAX * 100,
+        value=config.MEPET_SPREAD_TODAY * 100, step=0.5,
+    )
+    mepet_gap20_min = st.sidebar.slider(
+        f"MA20 min. di atas gumpalan, {config.MEPET_SPREAD_DAYS} hari terakhir (%)",
+        min_value=config.MEPET_GAP20_MIN_MIN * 100, max_value=config.MEPET_GAP20_MIN_MAX * 100,
+        value=config.MEPET_GAP20_MIN * 100, step=0.5,
+        help="MA20 harus tetap jelas di atas MA3/5/10, belum ikut menyatu.",
+    )
+    mepet_gap20_max = st.sidebar.slider(
+        "MA20 maks. di atas gumpalan (%)",
+        min_value=config.MEPET_GAP20_MAX_MIN * 100, max_value=config.MEPET_GAP20_MAX_MAX * 100,
+        value=config.MEPET_GAP20_MAX * 100, step=1.0,
+    )
+    mepet_dist = st.sidebar.slider(
+        "Harga maks. dari gumpalan MA3/5/10 (%)",
+        min_value=config.MEPET_DIST_CLUSTER_MIN * 100, max_value=config.MEPET_DIST_CLUSTER_MAX * 100,
+        value=config.MEPET_DIST_CLUSTER * 100, step=0.5,
+    )
+    mepet_rapi = st.sidebar.checkbox(
+        "MA60 < MA100 < MA200 wajib tersusun rapi", value=True, key="mepet_rapi",
+        help="Mati = MA60/100/200 cukup semuanya di atas MA20, urutannya boleh bersilangan.",
+    )
+    mepet_streak = st.sidebar.slider(
+        "Tangga MA bertahan min. (hari)",
+        min_value=config.MEPET_STREAK_DAYS_MIN, max_value=config.MEPET_STREAK_DAYS_MAX,
+        value=config.MEPET_STREAK_DAYS, step=1,
+        help="Berapa hari berturut-turut MA20 di atas gumpalan dan MA besar di atas MA20. "
+        "Makin besar = makin bersih, buang susunan yang baru terbentuk.",
+    )
+    mepet_min_tp = st.sidebar.slider(
+        "Target MA besar min. di atas harga (%)",
+        min_value=int(config.MEPET_MIN_TP_MIN * 100), max_value=int(config.MEPET_MIN_TP_MAX * 100),
+        value=int(config.MEPET_MIN_TP * 100), step=1, key="mepet_min_tp",
+    )
+    mepet_need_bigvol = st.sidebar.checkbox(
+        f"Pernah big volume ({config.SQZ_BIGVOL_DAYS} hari, min. 3x)", value=False, key="mepet_bigvol",
+    )
+
     st.sidebar.markdown("**Filter umur listing (semua kategori)**")
     max_listing_years = st.sidebar.slider(
         "Maks. umur listing (tahun)",
@@ -1267,6 +1339,19 @@ def main():
                 and (r.get("TP_L_Pot_pct", r["TP_Pot_pct"]) if sqz_longgar else r["TP_Pot_pct"]) >= sqz_min_tp_pct
                 and r["Dist_MA200_pct"] >= sqz_min_ma200_pct
                 and (not sqz_need_bigvol or r["MaxVol_Ratio"] >= sqz_bigvol_ratio)
+            )
+        )
+        and (
+            r["Setup"] != "10"
+            or (
+                r["Spread_Avg_pct"] <= mepet_spread_avg
+                and r["Spread_pct"] <= mepet_spread_today
+                and r["Gap20_Min_pct"] >= mepet_gap20_min
+                and r["Gap20_pct"] <= mepet_gap20_max
+                and abs(r["Gap_Cluster_pct"]) <= mepet_dist
+                and (r["Streak_Rapi_Days"] if mepet_rapi else r["Streak_Days"]) >= mepet_streak
+                and r["TP_Pot_pct"] >= mepet_min_tp
+                and (not mepet_need_bigvol or r["MaxVol_Ratio"] >= 3)
             )
         )
         and (
