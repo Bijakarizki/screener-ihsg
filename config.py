@@ -525,3 +525,30 @@ DATA_DIR = "data"
 EMITEN_JKT_CACHE_FILE = "data/emiten_jkt.json"   # cache daftar semua emiten BEI dari Yahoo
 LATEST_RESULT_FILE = "data/latest_result.json"
 HISTORY_DIR = "data/history"
+
+# ============================================================
+# NOTIFIKASI TELEGRAM: POLA MEPET + 7 CIRI (telegram_mepet.py)
+# ============================================================
+# Hasil backtest 2 tahun: pola mepet dengan >=5 dari 7 ciri dan MA besar
+# terdekat >=10% di atas -> 81% sampai MA besar dalam 60 hari bursa.
+# Token & chat id dari env TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID (GitHub secrets).
+TG_SPREAD = 0.05                    # MA3/5/10/20 selisih maks 5%
+TG_DEKAT = 0.04                     # harga maks 4% dari MA20
+TG_MIN_AKTIF = 15                   # minimal 15 dari 20 hari ada transaksi (high > low)
+TG_MIN_NILAI = 50e6                 # nilai transaksi median 20 hari min Rp 50 juta
+TG_MIN_JARAK_MA = 0.10              # MA besar terdekat (60/100/200) min 10% di atas harga
+TG_MIN_CIRI = 5                     # minimal 5 dari 7 ciri
+TG_MIN_STREAK = 3                   # SINYAL: sudah mepet minimal 3 hari berturut-turut
+TG_WINDOW_MEPET = 5                 # WATCHLIST: sempat mepet dalam 5 hari terakhir
+TG_MAX_CHART = 10                   # chart maks per kelompok (1 album Telegram)
+
+# Event "sebelum halt / news": hari pertama pasar anjlok terdeteksi otomatis
+# dalam TG_EVENT_LOOKBACK hari bursa terakhir, ditambah tanggal manual di bawah.
+TG_EVENT_LOOKBACK = 30
+TG_EVENT_WINDOW = 7                 # saham dihitung "lolos sebelum event" kalau lolos dalam 7 hari bursa sebelumnya
+TG_SHOCK_SEMUA = -0.04              # median return harian semua saham <= -4%
+TG_SHOCK_MURAH = -0.03              # atau median saham harga <200 <= -3%
+TG_EVENT_MANUAL = {                 # "YYYY-MM-DD": "keterangan" (hari kejadian, bukan sehari sebelumnya)
+    "2026-09-25": "Pembukaan harga 50 (saham murah dibanting)",
+    "2026-10-16": "Index halt",
+}

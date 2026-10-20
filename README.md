@@ -87,6 +87,7 @@ screener_app/
 ├── app.py                  # dashboard Streamlit (UI)
 ├── screener.py              # logic screening (porting dari notebook asli)
 ├── run_screener.py          # script yang dijalankan GitHub Actions tiap hari
+├── telegram_mepet.py        # notifikasi Telegram: pola mepet + 7 ciri (opsional)
 ├── config.py                 # daftar 931 ticker + semua parameter SMA/threshold
 ├── requirements.txt
 ├── .github/workflows/run_screener.yml   # jadwal otomatis harian
@@ -99,6 +100,25 @@ screener_app/
 Semua angka (toleransi SMA, minimal gap TP, dll) ada di `config.py`, sama persis
 dengan notebook aslinya. Tinggal ubah angkanya, commit, push — hasil run berikutnya
 otomatis pakai parameter baru.
+
+## 📲 Notifikasi Telegram: pola mepet + 7 ciri (opsional)
+Setelah screening harian selesai, `telegram_mepet.py` mengirim ke Telegram:
+ringkasan pasar, daftar **🎯 Sinyal** (sedang mepet, ≥5/7 ciri, MA besar ≥10% di atas),
+**👀 Watchlist** (sempat mepet ≤5 hari lalu, tunggu mepet lagi), dan **📌 Lolos sebelum
+event** (saham yang lolos dalam 7 hari bursa sebelum pasar anjlok / news), plus chart
+candle + MA + volume tiap saham. Tanpa secret di bawah, langkah ini otomatis dilewati.
+
+Cara menyalakan (sekali saja):
+1. Di Telegram, chat **@BotFather** → kirim `/newbot` → ikuti langkahnya → simpan **token** bot.
+2. Kirim pesan apa saja ke bot kamu (atau masukkan bot ke grup), lalu buka
+   `https://api.telegram.org/bot<TOKEN>/getUpdates` di browser → catat angka `"chat":{"id": ...}`.
+3. Di repo GitHub: **Settings → Secrets and variables → Actions → New repository secret**,
+   buat `TELEGRAM_BOT_TOKEN` (token tadi) dan `TELEGRAM_CHAT_ID` (angka chat id).
+4. Tab **Actions** → **Run Screener Saham IHSG** → **Run workflow** untuk tes kirim.
+
+Parameter (`TG_*`) ada di bagian paling bawah `config.py`. Tanggal kejadian penting
+(halt, news) bisa ditambah manual di `TG_EVENT_MANUAL`; hari pasar anjlok juga
+terdeteksi otomatis. Uji tanpa kirim: `python telegram_mepet.py --dry-run folder_output`.
 
 ## 🛡️ Soal rate-limit Yahoo Finance
 Yahoo Finance kadang membatasi (rate-limit) request dari server yang mengirim banyak
