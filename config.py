@@ -540,7 +540,13 @@ TG_MIN_JARAK_MA = 0.10              # MA besar terdekat (60/100/200) min 10% di 
 TG_MIN_CIRI = 5                     # minimal 5 dari 7 ciri
 TG_MIN_STREAK = 3                   # SINYAL: sudah mepet minimal 3 hari berturut-turut
 TG_WINDOW_MEPET = 5                 # WATCHLIST: sempat mepet dalam 5 hari terakhir
-TG_MAX_CHART = 10                   # chart maks per kelompok (1 album Telegram)
+TG_MAX_CHART = 10                   # chart maks per kelompok (1 album Telegram); event tanpa chart
+
+# Pemantauan watchlist sejak hari pertama masuk (dihitung ulang dari histori tiap run)
+TG_PANTAU_LOOKBACK = 25             # telusuri 25 hari bursa terakhir untuk cari hari masuk
+TG_GAGAL_TURUN = 0.10               # ❌ gagal kalau close turun >=10% dari harga saat masuk
+TG_GAGAL_HARI = 15                  # ❌ gagal kalau 15 hari bursa belum juga mepet lagi
+TG_TAMPIL_SELESAI = 3               # hasil (✅/❌) ditampilkan 3 hari bursa setelah kejadian
 
 # Event "sebelum halt / news": hari pertama pasar anjlok terdeteksi otomatis
 # dalam TG_EVENT_LOOKBACK hari bursa terakhir, ditambah tanggal manual di bawah.

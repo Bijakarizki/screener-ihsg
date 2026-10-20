@@ -6,10 +6,12 @@ Dipanggil di akhir run_screener.py memakai daily_data yang sudah di-download
   1. Ringkasan teks: kondisi pasar, lalu tiga daftar --
      - SINYAL    : sedang mepet, >= TG_MIN_CIRI dari 7 ciri, MA besar terdekat >= TG_MIN_JARAK_MA di atas
      - WATCHLIST : >= TG_MIN_CIRI ciri & MA besar jauh, sempat mepet <= TG_WINDOW_MEPET hari lalu
-                   tapi sekarang pola rusak (tunggu mepet lagi)
+                   tapi sekarang pola rusak (tunggu mepet lagi). Tiap saham dipantau sejak hari
+                   pertama masuk: ✅ berhasil kalau mepet lagi / sampai MA besar, ❌ gagal kalau
+                   close turun >= TG_GAGAL_TURUN dari harga masuk atau TG_GAGAL_HARI hari tak mepet lagi
      - SEBELUM EVENT : saham yang lolos syarat watchlist dalam TG_EVENT_WINDOW hari bursa sebelum pasar anjlok / news
                    (deteksi otomatis + TG_EVENT_MANUAL), beserta kondisinya sekarang
-  2. Chart candle + MA + volume per saham (album maks 10 foto).
+  2. Chart candle + MA + volume untuk sinyal & watchlist yang masih dipantau (album maks 10 foto).
 
 Pola mepet : MA3/5/10/20 selisih <= TG_SPREAD dan harga <= TG_DEKAT dari MA20.
 7 ciri     : 1 spike volume >= 6x dalam 3 bln       2 MA60 < MA100 < MA200
@@ -102,6 +104,50 @@ def lolos_watch(r):
     return r is not None and r["skor"] >= config.TG_MIN_CIRI and r["ma"] and r["ma_jarak"] >= config.TG_MIN_JARAK_MA
 
 
+def syarat_watch(r):
+    """Lolos ciri, sempat mepet dalam TG_WINDOW_MEPET hari, tapi belum cukup lama mepet untuk jadi sinyal."""
+    return lolos_watch(r) and r["mepet5h"] and r["streak"] < config.TG_MIN_STREAK
+
+
+def pantau_watch(a):
+    """
+    Telusuri TG_PANTAU_LOOKBACK bar terakhir: kapan saham masuk watchlist dan apa hasilnya.
+    Return (aktif, selesai): aktif = episode yang masih dipantau hari ini (atau None),
+    selesai = episode terakhir yang sudah berakhir berhasil/gagal (atau None).
+    Episode baru hanya dimulai saat syarat berubah dari tidak lolos ke lolos, jadi saham yang
+    sudah gagal tidak langsung masuk lagi esok harinya.
+    """
+    n = len(a["Close"])
+    ep = selesai = None
+    sebelumnya = False
+    for i in range(max(201, n - config.TG_PANTAU_LOOKBACK), n):
+        r = nilai_di(a, i)
+        lolos = syarat_watch(r)
+        if ep is None:
+            if lolos and not sebelumnya:
+                ep = dict(i0=i, r0=r)
+            sebelumnya = lolos
+            continue
+        r0 = ep["r0"]
+        if a["streak"][i] >= config.TG_MIN_STREAK:
+            hasil = ("berhasil", f"mepet lagi {config.TG_MIN_STREAK} hari")
+        elif a["High"][i] >= r0["ma_nilai"]:
+            hasil = ("berhasil", f"sampai MA{r0['ma']}")
+        elif a["Close"][i] <= r0["close"] * (1 - config.TG_GAGAL_TURUN):
+            hasil = ("gagal", f"turun ≥{config.TG_GAGAL_TURUN * 100:.0f}% sejak masuk")
+        elif i - ep["i0"] >= config.TG_GAGAL_HARI:
+            hasil = ("gagal", f"{config.TG_GAGAL_HARI} hari tidak mepet lagi")
+        else:
+            hasil = None
+        if hasil:
+            ep.update(status=hasil[0], alasan=hasil[1], i1=i, tgl1=a["tgl"][i], close1=a["Close"][i])
+            selesai, ep = ep, None
+        sebelumnya = lolos
+    if ep:
+        ep["hari"] = n - 1 - ep["i0"]
+    return ep, selesai
+
+
 # ============================================================
 # KONDISI PASAR & DETEKSI EVENT
 # ============================================================
@@ -171,21 +217,26 @@ def baris(t, r, ekstra=""):
 def susun(daily_data):
     """Hitung semua daftar. Return dict siap kirim."""
     info, events = kondisi_pasar(daily_data)
-    cache, sinyal, watch = {}, [], []
+    cache, sinyal, watch, hasil = {}, [], [], []
     for t, df in daily_data.items():
         if len(df) < 260:
             continue
         a = siapkan(df)
+        if a["tgl"][-1] != info["tgl"]:
+            continue  # tidak ada transaksi hari ini (suspend dll)
         cache[t] = a
         r = nilai_di(a, len(df) - 1)
-        if not lolos_watch(r) or r["tgl"] != info["tgl"]:
-            continue
-        if r["streak"] >= config.TG_MIN_STREAK:
+        if lolos_watch(r) and r["streak"] >= config.TG_MIN_STREAK:
             sinyal.append((t, r))
-        elif r["mepet5h"]:
-            watch.append((t, r))
+        aktif, selesai = pantau_watch(a)
+        if aktif and lolos_watch(r):  # ciri turun di bawah syarat -> tetap dipantau tapi tidak ditampilkan
+            aktif["sebelumnya"] = selesai
+            watch.append((t, r, aktif))
+        if selesai and len(df) - 1 - selesai["i1"] < config.TG_TAMPIL_SELESAI:
+            hasil.append((t, selesai))
     sinyal.sort(key=lambda x: (-x[1]["skor"], -x[1]["ma_jarak"]))
     watch.sort(key=lambda x: (-x[1]["skor"], x[1]["spread"]))
+    hasil.sort(key=lambda x: (x[1]["status"] != "berhasil", x[1]["tgl1"], x[0]))
 
     per_event = []
     for d, ev in events.items():
@@ -208,7 +259,7 @@ def susun(daily_data):
             daftar.append((t, r0, r1))
         daftar.sort(key=lambda x: (-x[1]["skor"], x[1]["spread"]))
         per_event.append((d, ev, daftar))
-    return dict(info=info, sinyal=sinyal, watch=watch, events=per_event, cache=cache)
+    return dict(info=info, sinyal=sinyal, watch=watch, hasil=hasil, events=per_event, cache=cache)
 
 
 def teks_ringkasan(h):
@@ -227,9 +278,24 @@ def teks_ringkasan(h):
     out.append("")
     out.append(f"<b>👀 WATCHLIST — sempat mepet ≤{config.TG_WINDOW_MEPET} hari lalu, tunggu mepet lagi</b>")
     if h["watch"]:
-        out += [baris(t, r, f" · vs MA20 {pct(r['gap20'])}") for t, r in h["watch"]]
+        for t, r, ep in h["watch"]:
+            ubah = r["close"] / ep["r0"]["close"] - 1
+            pantau = ("🆕 masuk hari ini" if ep["hari"] == 0 else
+                      f"⏳ hari ke-{ep['hari']} (masuk {tgl_id(ep['r0']['tgl'])} {pct(ubah)})")
+            lama = ep["sebelumnya"]
+            if lama:
+                pantau += f" · masuk lagi setelah {'✅' if lama['status'] == 'berhasil' else '❌'} {tgl_id(lama['tgl1'])}"
+            out.append(baris(t, r, f" · vs MA20 {pct(r['gap20'])} · {pantau}"))
     else:
         out.append("– kosong")
+    if h["hasil"]:
+        out.append("")
+        out.append(f"<b>📋 HASIL WATCHLIST — {config.TG_TAMPIL_SELESAI} hari bursa terakhir</b>")
+        for t, ep in h["hasil"]:
+            ikon = "✅" if ep["status"] == "berhasil" else "❌"
+            r0 = ep["r0"]
+            out.append(f"{ikon} <b>{t}</b> masuk {tgl_id(r0['tgl'])} Rp{rp(r0['close'])} → {rp(ep['close1'])} "
+                       f"({pct(ep['close1'] / r0['close'] - 1)}) · {ep['alasan']} ({tgl_id(ep['tgl1'])})")
     for d, ev, daftar in h["events"]:
         out.append("")
         out.append(f"<b>📌 LOLOS SEBELUM {tgl_id(d)} — {ev['label']}</b>")
@@ -240,7 +306,9 @@ def teks_ringkasan(h):
             out.append(f"<b>{t}</b> {r0['skor']}/7 ({tgl_id(r0['tgl'])}) · Rp{rp(r0['close'])} → {rp(r1['close'])} "
                        f"({pct(r1['close'] / r0['close'] - 1)}) · {status}"
                        + (f" · MA{r1['ma']} {pct(r1['ma_jarak'])}" if r1["ma"] else ""))
-    out += ["", "<i>Ciri: 1 spike vol ≥6x (3 bln) · 2 MA60&lt;MA100&lt;MA200 · 3 harga ≥ MA20 · "
+    out += ["", f"<i>✅ berhasil = mepet lagi {config.TG_MIN_STREAK} hari / sampai MA besar · ❌ gagal = close turun "
+                f"≥{config.TG_GAGAL_TURUN * 100:.0f}% dari harga masuk / {config.TG_GAGAL_HARI} hari bursa tidak mepet lagi</i>",
+            "<i>Ciri: 1 spike vol ≥6x (3 bln) · 2 MA60&lt;MA100&lt;MA200 · 3 harga ≥ MA20 · "
                 "4 naik ≥15% dari dasar 3 bln · 5 harga &lt;200 · 6 candle spike ditolak · "
                 "7 sempat dibanting ≥12% di bawah MA20</i>",
             "<i>Backtest 2 th (mepet, ≥5/7, MA besar ≥10%): 81% sampai MA besar ≤60 hari, median +10%. "
@@ -306,7 +374,7 @@ def gambar(a, judul, subjudul, arsir_dari=None, n=90):
             ax.axvspan(idx[0] - 0.5, m - 0.5, color="#f6f5f1", zorder=0)
     axv.set_ylim(0, (np.nanmax(v) or 1) * 1.15)
     axv.set_yticks([])
-    ket = f"; area arsir = sejak {tgl_id(arsir_dari)}" if arsir_dari else ""
+    ket = f"; area arsir = sejak masuk watchlist {tgl_id(arsir_dari)}" if arsir_dari else ""
     axv.text(0.0, 1.04, f"Volume (batang gelap = di atas 3x rata-rata 20 hari{ket})", transform=axv.transAxes,
              fontsize=8, color=TEXT2)
     for x in (ax, axv):
@@ -353,14 +421,10 @@ def daftar_chart(h):
     tambah("🎯 Sinyal", [(t, r, f"{t} · Rp {rp(r['close'])} · {r['skor']}/7 ciri · mepet {r['streak']} hari",
                           f"🎯 <b>{t}</b> {r['skor']}/7 · MA{r['ma']} {pct(r['ma_jarak'])}", None)
                          for t, r in h["sinyal"]], config.TG_MAX_CHART)
-    tambah("👀 Watchlist", [(t, r, f"{t} · Rp {rp(r['close'])} · {r['skor']}/7 ciri · tunggu mepet lagi",
-                             f"👀 <b>{t}</b> {r['skor']}/7 · vs MA20 {pct(r['gap20'])}", None)
-                            for t, r in h["watch"]], config.TG_MAX_CHART)
-    for d, ev, daftar in h["events"]:
-        tambah(f"📌 Sebelum {tgl_id(d)}",
-               [(t, r0, f"{t} · {r0['skor']}/7 ciri pada {tgl_id(r0['tgl'])} (sebelum {tgl_id(d)}) · Rp {rp(r0['close'])} → {rp(r1['close'])}",
-                 f"📌 <b>{t}</b> {r0['skor']}/7 sebelum {tgl_id(d)} · {pct(r1['close'] / r0['close'] - 1)} sejak itu", d)
-                for t, r0, r1 in daftar], config.TG_MAX_CHART)
+    tambah("👀 Watchlist", [(t, r, f"{t} · Rp {rp(r['close'])} · {r['skor']}/7 ciri · pantau hari ke-{ep['hari']}",
+                             f"👀 <b>{t}</b> {r['skor']}/7 · masuk {tgl_id(ep['r0']['tgl'])} "
+                             f"{pct(r['close'] / ep['r0']['close'] - 1)} · vs MA20 {pct(r['gap20'])}", ep["r0"]["tgl"])
+                            for t, r, ep in h["watch"]], config.TG_MAX_CHART)
     return kelompok
 
 
@@ -399,7 +463,7 @@ def kirim_harian(daily_data, dry_run_dir=None, log=print):
     h = susun(daily_data)
     teks = teks_ringkasan(h)
     kelompok = daftar_chart(h)
-    log(f"Telegram: {len(h['sinyal'])} sinyal, {len(h['watch'])} watchlist, {len(h['events'])} event, "
+    log(f"Telegram: {len(h['sinyal'])} sinyal, {len(h['watch'])} watchlist, {len(h['hasil'])} hasil, {len(h['events'])} event, "
         f"{sum(len(f) for _, f in kelompok)} chart.")
     if dry_run_dir:
         os.makedirs(dry_run_dir, exist_ok=True)
