@@ -544,11 +544,10 @@ TG_MAX_CHART = 10                   # chart maks per kelompok (1 album Telegram)
 
 # Event "sebelum halt / news": hari pertama pasar anjlok terdeteksi otomatis
 # dalam TG_EVENT_LOOKBACK hari bursa terakhir, ditambah tanggal manual di bawah.
-TG_EVENT_LOOKBACK = 30
+TG_EVENT_LOOKBACK = 10              # event lebih lama dari 10 hari bursa tidak ditampilkan lagi
 TG_EVENT_WINDOW = 7                 # saham dihitung "lolos sebelum event" kalau lolos dalam 7 hari bursa sebelumnya
 TG_SHOCK_SEMUA = -0.04              # median return harian semua saham <= -4%
 TG_SHOCK_MURAH = -0.03              # atau median saham harga <200 <= -3%
 TG_EVENT_MANUAL = {                 # "YYYY-MM-DD": "keterangan" (hari kejadian, bukan sehari sebelumnya)
-    "2026-09-25": "Pembukaan harga 50 (saham murah dibanting)",
     "2026-10-16": "Index halt",
 }
