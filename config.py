@@ -460,13 +460,17 @@ SQZ_BIGVOL_RATIO_MAX = 10.0
 # ============================================================
 # SETUP 10 -- MEPET DI BAWAH MA20 (pola FILM)
 # ============================================================
-# MA3/5/10 menempel rapat dan harga berjalan di gumpalan itu, MA20 tetap jelas
-# di atasnya (belum ikut menyatu), dan MA60/100/200 semuanya di atas MA20 --
-# idealnya tersusun rapi MA20 < MA60 < MA100 < MA200 dan sudah bertahan lama.
+# MA3/5/10 menempel rapat dan harga berjalan di gumpalan itu, MA20 jadi "atap"
+# di atasnya (gumpalan masih di bawah atap, dekat atap, atau baru menembus
+# tipis), dan MA60/100/200 semuanya di atas MA20 -- idealnya tersusun rapi
+# MA20 < MA60 < MA100 < MA200 dan sudah bertahan lama. Chart yang "spike"
+# (ekor candle panjang) dibuang lewat batas ekor candle.
 # Screener menyimpan hasil dengan batas paling longgar; dashboard menyaring
 # ulang memakai slider (default di bawah).
 MEPET_SPREAD_DAYS = 5               # spread MA3/5/10 dirata-rata sekian hari (tetap)
 MEPET_STREAK_MAX = 60               # hitung lama tangga bertahan maksimal sekian hari
+MEPET_ROOF_TOL = 0.03               # tangga dianggap utuh selama gumpalan maks 3% menembus atap MA20
+MEPET_WICK_DAYS = 20                # ekor candle dicek sekian hari terakhir (tetap)
 
 MEPET_SPREAD_AVG = 0.05             # default slider: rata-rata spread 5 hari maks 5%
 MEPET_SPREAD_AVG_MIN = 0.01
@@ -476,8 +480,10 @@ MEPET_SPREAD_TODAY = 0.07           # default slider: spread hari ini maks 7%
 MEPET_SPREAD_TODAY_MIN = 0.02
 MEPET_SPREAD_TODAY_MAX = 0.10
 
-MEPET_GAP20_MIN = 0.03              # default slider: MA20 min 3% di atas gumpalan (5 hari terakhir)
-MEPET_GAP20_MIN_MIN = 0.0
+# Jarak atap MA20 ke puncak gumpalan MA3/5/10 (5 hari terakhir). Negatif =
+# gumpalan sudah sedikit menembus ke atas MA20.
+MEPET_GAP20_MIN = -0.03             # default slider: gumpalan boleh menembus atap maks 3%
+MEPET_GAP20_MIN_MIN = -0.05
 MEPET_GAP20_MIN_MAX = 0.10
 
 MEPET_GAP20_MAX = 0.20              # default slider: MA20 maks 20% di atas gumpalan
@@ -491,6 +497,10 @@ MEPET_DIST_CLUSTER_MAX = 0.10
 MEPET_STREAK_DAYS = 15              # default slider: tangga bertahan min 15 hari
 MEPET_STREAK_DAYS_MIN = 1
 MEPET_STREAK_DAYS_MAX = MEPET_STREAK_MAX
+
+MEPET_MAX_WICK = 0.12               # default slider: ekor candle terpanjang 20 hari maks 12%
+MEPET_MAX_WICK_MIN = 0.05
+MEPET_MAX_WICK_MAX = 0.30
 
 MEPET_MIN_TP = 0.08                 # default slider: target (MA besar terdekat) min 8%
 MEPET_MIN_TP_MIN = 0.05

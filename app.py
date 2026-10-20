@@ -217,7 +217,7 @@ CATEGORY_INFO = {
     },
     "10": {
         "label": "Mepet di Bawah MA20",
-        "desc": "MA3/5/10 menempel rapat dan harga berjalan di gumpalan itu, MA20 tetap jelas di atasnya, dan MA60/100/200 semuanya di atas MA20 tersusun rapi seperti tangga yang sudah bertahan lama (pola FILM) -- target ke MA besar terdekat.",
+        "desc": "MA3/5/10 menempel rapat dan harga berjalan di gumpalan itu, MA20 jadi atap di atasnya (gumpalan masih di bawah atap atau sudah dekat atap), dan MA60/100/200 semuanya di atas MA20 tersusun rapi seperti tangga yang sudah bertahan lama, tanpa candle spike (pola FILM / CTBN) -- target ke MA besar terdekat.",
     },
 }
 
@@ -773,8 +773,13 @@ def render_result_row(row, nomor, charts, sma20_tol_pct, big_vol_days, big_vol_r
                     + f" (spread hari ini {row['Spread_pct']:.1f}%, rata-rata {config.MEPET_SPREAD_DAYS} hari "
                     f"{row['Spread_Avg_pct']:.1f}%)"
                 )
+                posisi = (
+                    "di bawah atap" if row["Gap20_pct"] >= 3
+                    else "dekat atap" if row["Gap20_pct"] >= 0 else "di atap (menembus tipis)"
+                )
                 st.write(
-                    f"MA20 Rp {format_rupiah(row.get('SMA20'))}, {row['Gap20_pct']:.1f}% di atas gumpalan · "
+                    f"Atap MA20 Rp {format_rupiah(row.get('SMA20'))}: gumpalan {posisi}, "
+                    f"MA20 {row['Gap20_pct']:+.1f}% dari puncak gumpalan · "
                     f"MA60 / MA100 / MA200: Rp {format_rupiah(row.get('SMA60'))} / "
                     f"Rp {format_rupiah(row.get('SMA100'))} / Rp {format_rupiah(row.get('SMA200'))}"
                 )
@@ -783,6 +788,10 @@ def render_result_row(row, nomor, charts, sma20_tol_pct, big_vol_days, big_vol_r
                     f"(tersusun rapi MA60 < MA100 < MA200: {row['Streak_Rapi_Days']} hari) · "
                     f"harga {row['Gap_Cluster_pct']:+.1f}% dari gumpalan · "
                     f"volume terbesar {config.SQZ_BIGVOL_DAYS} hari: {row['MaxVol_Ratio']:.1f}x"
+                    + (
+                        f" · ekor candle terpanjang {config.MEPET_WICK_DAYS} hari: {row['Max_Wick_pct']:.1f}%"
+                        if row.get("Max_Wick_pct") is not None else ""
+                    )
                 )
                 st.write(f"Target: {row['TP_Target']} = Rp {format_rupiah(row['TP_Val'])}")
 
@@ -1184,10 +1193,11 @@ def main():
         value=config.MEPET_SPREAD_TODAY * 100, step=0.5,
     )
     mepet_gap20_min = st.sidebar.slider(
-        f"MA20 min. di atas gumpalan, {config.MEPET_SPREAD_DAYS} hari terakhir (%)",
+        f"Atap MA20 min. dari puncak gumpalan, {config.MEPET_SPREAD_DAYS} hari terakhir (%)",
         min_value=config.MEPET_GAP20_MIN_MIN * 100, max_value=config.MEPET_GAP20_MIN_MAX * 100,
         value=config.MEPET_GAP20_MIN * 100, step=0.5,
-        help="MA20 harus tetap jelas di atas MA3/5/10, belum ikut menyatu.",
+        help="Negatif = gumpalan MA3/5/10 boleh sedikit menembus atap MA20. "
+        "Positif = gumpalan harus masih jelas di bawah atap.",
     )
     mepet_gap20_max = st.sidebar.slider(
         "MA20 maks. di atas gumpalan (%)",
@@ -1214,6 +1224,12 @@ def main():
         "Target MA besar min. di atas harga (%)",
         min_value=int(config.MEPET_MIN_TP_MIN * 100), max_value=int(config.MEPET_MIN_TP_MAX * 100),
         value=int(config.MEPET_MIN_TP * 100), step=1, key="mepet_min_tp",
+    )
+    mepet_max_wick = st.sidebar.slider(
+        f"Ekor candle terpanjang {config.MEPET_WICK_DAYS} hari maks. (%)",
+        min_value=config.MEPET_MAX_WICK_MIN * 100, max_value=config.MEPET_MAX_WICK_MAX * 100,
+        value=config.MEPET_MAX_WICK * 100, step=0.5,
+        help="Buang chart yang spike (candle dengan ekor panjang). Makin kecil = makin halus.",
     )
     mepet_need_bigvol = st.sidebar.checkbox(
         f"Pernah big volume ({config.SQZ_BIGVOL_DAYS} hari, min. 3x)", value=False, key="mepet_bigvol",
@@ -1352,6 +1368,7 @@ def main():
                 and (r["Streak_Rapi_Days"] if mepet_rapi else r["Streak_Days"]) >= mepet_streak
                 and r["TP_Pot_pct"] >= mepet_min_tp
                 and (not mepet_need_bigvol or r["MaxVol_Ratio"] >= 3)
+                and r.get("Max_Wick_pct", 0) <= mepet_max_wick
             )
         )
         and (

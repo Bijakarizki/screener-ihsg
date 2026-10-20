@@ -1349,7 +1349,7 @@ def screen_setup10(daily_data):
         gap20 = (w["SMA20"] / top - 1).to_numpy()
         besar_atas = ((w["SMA60"] > w["SMA20"]) & (w["SMA100"] > w["SMA20"]) & (w["SMA200"] > w["SMA20"])).to_numpy()
         rapi = ((w["SMA60"] < w["SMA100"]) & (w["SMA100"] < w["SMA200"])).to_numpy()
-        dasar = (gap20 > 0) & besar_atas
+        dasar = (gap20 > -config.MEPET_ROOF_TOL) & besar_atas
 
         k = config.MEPET_SPREAD_DAYS
         spread_avg = float(spread[-k:].mean())
@@ -1375,6 +1375,12 @@ def screen_setup10(daily_data):
         ):
             continue
 
+        bw = d.tail(config.MEPET_WICK_DAYS)
+        wick = ((bw["High"] - bw["Low"]) - (bw["Close"] - bw["Open"]).abs()) / bw["Close"]
+        max_wick = float(wick.max())
+        if max_wick > config.MEPET_MAX_WICK_MAX:
+            continue
+
         recent = d.tail(config.SQZ_BIGVOL_DAYS)
         ratio = (recent["Volume"] / recent["VolSMA20"]).replace([np.inf, -np.inf], np.nan)
         max_vol_ratio = float(ratio.max()) if ratio.notna().any() else 0.0
@@ -1384,6 +1390,7 @@ def screen_setup10(daily_data):
                 "Ticker": tkr,
                 "Close": round(close, 0),
                 **{c: round(float(row[c]), 0) for c in cols},
+                "Max_Wick_pct": round(max_wick * 100, 2),
                 "Spread_pct": round(float(spread[-1]) * 100, 2),
                 "Spread_Avg_pct": round(spread_avg * 100, 2),
                 "Gap20_pct": round(float(gap20[-1]) * 100, 2),
@@ -1403,8 +1410,17 @@ def screen_setup10(daily_data):
     return results
 
 
+def posisi_atap(gap20_pct):
+    """Label posisi gumpalan MA3/5/10 terhadap atap MA20."""
+    if gap20_pct >= 3:
+        return "Di bawah atap"
+    if gap20_pct >= 0:
+        return "Dekat atap"
+    return "Di atap"
+
+
 def lolos_setup10(r, spread_avg, spread_today, gap20_min, gap20_max, dist, streak_days, min_tp,
-                  wajib_rapi=True, bigvol_ratio=None):
+                  wajib_rapi=True, bigvol_ratio=None, max_wick=None):
     """Filter Setup 10 (semua dalam persen / hari); dipakai run_screener & dashboard."""
     streak = r["Streak_Rapi_Days"] if wajib_rapi else r["Streak_Days"]
     return (
@@ -1416,6 +1432,7 @@ def lolos_setup10(r, spread_avg, spread_today, gap20_min, gap20_max, dist, strea
         and streak >= streak_days
         and r["TP_Pot_pct"] >= min_tp
         and (bigvol_ratio is None or r["MaxVol_Ratio"] >= bigvol_ratio)
+        and (max_wick is None or r.get("Max_Wick_pct", 0) <= max_wick)
     )
 
 
@@ -1423,7 +1440,7 @@ def lolos_default_setup10(r):
     return lolos_setup10(
         r, config.MEPET_SPREAD_AVG * 100, config.MEPET_SPREAD_TODAY * 100, config.MEPET_GAP20_MIN * 100,
         config.MEPET_GAP20_MAX * 100, config.MEPET_DIST_CLUSTER * 100, config.MEPET_STREAK_DAYS,
-        config.MEPET_MIN_TP * 100,
+        config.MEPET_MIN_TP * 100, max_wick=config.MEPET_MAX_WICK * 100,
     )
 
 
