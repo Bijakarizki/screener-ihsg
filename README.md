@@ -108,7 +108,9 @@ otomatis pakai parameter baru.
 target MA60/100/200 (atau SMA besar yang jauh kalau SMA112/224 sudah dekat), stop −10%.
 
 - **12:00 & 18:00 WIB** (Senin–Jumat, kecuali libur bursa): satu pesan singkat berisi
-  saham yang 🟢 masuk, ➕ tambah posisi, 🎯 kena target, ⛔ kena stop, dan 👀 watchlist.
+  saham yang 🟢 masuk, 🔄 pantul, ➕ tambah posisi, 🎯 kena target, ⛔ kena stop, dan 👀 watchlist.
+- **🔄 PANTUL** (gaya STRK): sempat lilit, dibanting ≥25%, lalu close tembus SMA20 lagi. Target harga
+  sebelum dibanting, stop di low dasar. "Calon pantul" = sudah dibanting tapi belum tembus SMA20.
 - **Ketik kode saham** ke bot (misal `BAIK`) → dibalas chart + status singkat. Pesan dicek
   tiap ±10 menit antara 07:00–22:59 WIB, jadi balasan datang dalam ±10–20 menit.
 - LPM tidak dihitung bot (datanya tidak ada di Yahoo) — tetap dicek manual.

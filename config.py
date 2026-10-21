@@ -551,3 +551,14 @@ TG_STOP = 0.10                      # stop -10% dari harga masuk
 TG_MAKS_SINYAL = 5                  # sinyal masuk maks 5 saham per pesan
 TG_MAKS_PANTAU = 5                  # watchlist maks 5 saham per pesan
 TG_MAKS_CHART = 3                   # maks chart per balasan
+
+# Setup PANTUL (gaya STRK 5 Okt 2026): lilit longgar -> dibanting >= 25% -> close tembus SMA20.
+# Target = harga sebelum dibanting, stop = low dasar. Backtest 5 tahun (harga <200, bukan gorengan):
+# menang 60%, rata-rata +5,3% per trade; paling bagus di tahun-tahun pasar habis jatuh.
+TG_PANTUL_SPREAD = 0.05             # lilit longgar: SMA3/5/10/20 selisih maks 5%
+TG_PANTUL_DEKAT = 0.04              # harga maks 4% dari SMA20
+TG_PANTUL_LILIT = 3                 # lilit minimal 3 hari
+TG_PANTUL_JEJAK = 25                # lilit maks 25 hari bursa sebelum titik terendah
+TG_PANTUL_BANTING = 0.25            # dibanting minimal 25% dari harga lilit
+TG_PANTUL_VOL_MAKS = None           # isi 2 = buang yang volume hari tembus >= 2x (rata-rata naik, tapi STRK ikut terbuang)
+

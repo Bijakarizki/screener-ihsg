@@ -49,14 +49,18 @@ def siapkan(df):
     nilai = pd.Series(c * v).rolling(20).median().to_numpy()
     a["vs20"] = pd.Series(v).rolling(20).mean().to_numpy()
     a["likuid"] = (aktif >= config.TG_MIN_AKTIF) & (nilai >= config.TG_MIN_NILAI)
-    lilit = (spread <= config.TG_SPREAD) & (np.abs(gap) <= config.TG_DEKAT) & a["likuid"]
-    streak = np.zeros(len(c), int)
-    for i in range(len(c)):
-        streak[i] = (streak[i - 1] + 1 if i else 1) if lilit[i] else 0
-    a["streak"] = streak
+    a["streak"] = _streak((spread <= config.TG_SPREAD) & (np.abs(gap) <= config.TG_DEKAT) & a["likuid"])
+    a["streak_longgar"] = _streak((spread <= config.TG_PANTUL_SPREAD) & (np.abs(gap) <= config.TG_PANTUL_DEKAT) & a["likuid"])
     pc = np.r_[np.nan, c[:-1]]
     a["barbar"] = (((h - l) / pc >= 0.15) | ((o - pc) / pc >= 0.10)).astype(int)
     return a
+
+
+def _streak(mask):
+    out = np.zeros(len(mask), int)
+    for i in range(len(mask)):
+        out[i] = (out[i - 1] + 1 if i else 1) if mask[i] else 0
+    return out
 
 
 def ada_ma_besar_di_atas(a, i):
@@ -98,14 +102,54 @@ def target_di(a, i):
     return mode, p, cand[p]
 
 
-def jalur(a, e, sampai):
+def cari_banting(a, i):
+    """PANTUL (gaya STRK): lilit longgar, lalu dibanting >= TG_PANTUL_BANTING dalam TG_TUNGGU hari terakhir.
+    Return (j = hari lilit terakhir, d = hari dasar) atau None. Gorengan dihitung SEBELUM dibanting."""
+    c, l = a["Close"], a["Low"]
+    if c[i] >= config.TG_HARGA_MAKS or not a["likuid"][i]:
+        return None
+    lo = max(0, i - config.TG_TUNGGU)
+    d = lo + int(np.argmin(l[lo:i + 1]))
+    js = [j for j in range(max(0, d - config.TG_PANTUL_JEJAK), d) if a["streak_longgar"][j] >= config.TG_PANTUL_LILIT]
+    if not js:
+        return None
+    j = js[-1]
+    if l[d] / c[j] - 1 > -config.TG_PANTUL_BANTING or a["barbar"][max(0, j - 59):j + 1].sum() >= config.TG_BARBAR_MAKS:
+        return None
+    return j, d
+
+
+def pantul_di(a, i):
+    """Hari ke-i: setelah dibanting (cari_banting), close tembus SMA20."""
+    c, m20 = a["Close"], a["ma"][20]
+    if i < 1 or not (c[i] > m20[i] and c[i - 1] <= m20[i - 1]):
+        return None
+    vol = a["Volume"][i] / a["vs20"][i] if a["vs20"][i] else 0
+    if config.TG_PANTUL_VOL_MAKS and vol >= config.TG_PANTUL_VOL_MAKS:
+        return None
+    return cari_banting(a, i)
+
+
+def entri_di(a, e):
+    """Entry di hari e: dict(jenis 'masuk'|'pantul', mode, target, stop) atau None."""
+    c = a["Close"]
+    if masuk_di(a, e):
+        mode, _, tgt = target_di(a, e)
+        return dict(jenis="masuk", mode=mode, target=tgt, stop=c[e] * (1 - config.TG_STOP))
+    p = pantul_di(a, e)
+    if p:
+        j, d = p
+        return dict(jenis="pantul", mode="pantul", target=c[j] if c[j] > c[e] else None, stop=a["Low"][d] * 0.99)
+    return None
+
+
+def jalur(a, e, sampai, en):
     """Nasib entry hari e sampai bar 'sampai': ('stop'|'target'|None, hari kejadian)."""
-    c, h, l = a["Close"], a["High"], a["Low"]
-    _, _, tgt = target_di(a, e)
+    h, l = a["High"], a["Low"]
     for j in range(e + 1, sampai + 1):
-        if l[j] <= c[e] * (1 - config.TG_STOP):
+        if l[j] <= en["stop"]:
             return "stop", j
-        if tgt is not None and h[j] >= tgt:
+        if en["target"] is not None and h[j] >= en["target"]:
             return "target", j
     return None, None
 
@@ -116,23 +160,26 @@ def status(a, i=None):
     c, ma = a["Close"], a["ma"]
     st = dict(i=i, close=c[i], tgl=a["tgl"][i], lolos=lolos_saringan(a, i),
               vol=a["Volume"][i] / a["vs20"][i] if a["vs20"][i] else np.nan)
-    if masuk_di(a, i):
-        st["masuk"] = target_di(a, i)
+    en = entri_di(a, i)
+    if en:
+        st[en["jenis"]] = en
+    elif c[i] < ma[20][i] and cari_banting(a, i):
+        st["calon_pantul"] = ma[20][i] / c[i] - 1
     if lolos_saringan(a, i) and setup_di(a, i):
         st["pantau"] = ma[20][i] / c[i] - 1
         st["pantau_jauh"] = any(not np.isnan(ma[p][i]) and c[i] < ma[p][i] <= c[i] * (1 + config.TG_K2_JARAK) for p in (112, 224))
     # entry yang masih berjalan / baru selesai hari ini
     for e in range(max(1, i - config.TG_TUNGGU), i):
-        if not masuk_di(a, e):
+        en = entri_di(a, e)
+        if not en:
             continue
-        hasil, j = jalur(a, e, i)
+        hasil, j = jalur(a, e, i, en)
         if hasil and j == i:
-            st["selesai"] = (hasil, e)
+            st["selesai"] = (hasil, e, en)
         elif hasil is None:
-            mode, p_tgt, tgt = target_di(a, e)
-            st["jalan"] = (e, mode, p_tgt, tgt)
+            st["jalan"] = (e, en)
             sma_e = [p for p in (112, 224) if not np.isnan(ma[p][e]) and ma[p][e] > c[e]]
-            if mode == "dekat" and any(c[i] > ma[p][i] and c[i - 1] <= ma[p][i - 1] for p in sma_e):
+            if en["mode"] == "dekat" and any(c[i] > ma[p][i] and c[i - 1] <= ma[p][i - 1] for p in sma_e):
                 st["tambah"] = e
     return st
 
@@ -152,16 +199,17 @@ def tanggal(d):
     return f"{int(d[8:])} {BULAN[int(d[5:7]) - 1]} {d[:4]}"
 
 
-def teks_target(st):
-    mode, p, tgt = st["masuk"]
-    stop = st["close"] * (1 - config.TG_STOP)
-    arah = f"→ {rp(tgt)} ({pct(tgt / st['close'] - 1)})" if tgt else "→ tahan, tanpa target"
-    return f"{arah} · stop {rp(stop)}"
+def teks_target(en, close):
+    tgt = en["target"]
+    arah = f"→ {rp(tgt)} ({pct(tgt / close - 1)})" if tgt else "→ tahan, tanpa target"
+    return f"{arah} · stop {rp(en['stop'])}"
 
 
 def ringkasan(semua, jam):
     masuk = [(t, s) for t, s in semua.items() if "masuk" in s]
-    masuk.sort(key=lambda x: (x[1]["masuk"][0] != "jauh", -(x[1]["vol"] if x[1]["vol"] == x[1]["vol"] else 0)))
+    masuk.sort(key=lambda x: (x[1]["masuk"]["mode"] != "jauh", -(x[1]["vol"] if x[1]["vol"] == x[1]["vol"] else 0)))
+    pantul = [(t, s) for t, s in semua.items() if "pantul" in s]
+    calon = sorted(((t, s) for t, s in semua.items() if "calon_pantul" in s), key=lambda x: x[1]["calon_pantul"])
     tambah = [t for t, s in semua.items() if "tambah" in s]
     target = [(t, s) for t, s in semua.items() if s.get("selesai", ("",))[0] == "target"]
     stop = [t for t, s in semua.items() if s.get("selesai", ("",))[0] == "stop"]
@@ -172,9 +220,12 @@ def ringkasan(semua, jam):
     out = [f"📊 {jam} · {tanggal(tgl)[:-5]}"]
     if masuk:
         out.append("🟢 MASUK")
-        out += [f"{t} {rp(s['close'])} {teks_target(s)}" for t, s in masuk[:config.TG_MAKS_SINYAL]]
+        out += [f"{t} {rp(s['close'])} {teks_target(s['masuk'], s['close'])}" for t, s in masuk[:config.TG_MAKS_SINYAL]]
     else:
         out.append("🟢 MASUK: belum ada")
+    if pantul:
+        out.append("🔄 PANTUL")
+        out += [f"{t} {rp(s['close'])} {teks_target(s['pantul'], s['close'])}" for t, s in pantul[:config.TG_MAKS_SINYAL]]
     if tambah:
         out.append("➕ TAMBAH: " + ", ".join(tambah))
     if target:
@@ -184,6 +235,10 @@ def ringkasan(semua, jam):
     if pantau:
         out.append("👀 PANTAU: " + ", ".join(f"{t} ({s['pantau'] * 100:.1f}%)".replace(".", ",")
                                              for t, s in pantau[:config.TG_MAKS_PANTAU]))
+    if calon:
+        out.append("🔄 CALON PANTUL: " + ", ".join(f"{t} ({s['calon_pantul'] * 100:.1f}%)".replace(".", ",")
+                                                  for t, s in calon[:config.TG_MAKS_PANTAU]))
+    if pantau or calon:
         out.append("(angka = jarak ke tembus SMA20)")
     out.append("Cek LPM dulu · ketik kode saham untuk chart")
     return "\n".join(out)
@@ -191,18 +246,23 @@ def ringkasan(semua, jam):
 
 def caption(t, st):
     if "masuk" in st:
-        return f"{t} {rp(st['close'])} · 🟢 masuk hari ini {teks_target(st)}"
+        return f"{t} {rp(st['close'])} · 🟢 masuk hari ini {teks_target(st['masuk'], st['close'])}"
+    if "pantul" in st:
+        return f"{t} {rp(st['close'])} · 🔄 pantul hari ini {teks_target(st['pantul'], st['close'])}"
     if "selesai" in st:
-        hasil, e = st["selesai"]
+        hasil, e, en = st["selesai"]
         return f"{t} {rp(st['close'])} · {'🎯 kena target' if hasil == 'target' else '⛔ kena stop'} (masuk {tanggal(st['_tgl_e'])})"
     if "jalan" in st:
-        e, mode, p, tgt = st["jalan"]
+        e, en = st["jalan"]
         ubah = st["close"] / st["_close_e"] - 1
-        arah = f"target {rp(tgt)}" if tgt else "tahan"
-        teks = f"{t} {rp(st['close'])} · posisi jalan sejak {tanggal(st['_tgl_e'])} ({pct(ubah)}) · {arah} · stop {rp(st['_close_e'] * (1 - config.TG_STOP))}"
+        arah = f"target {rp(en['target'])}" if en["target"] else "tahan"
+        jenis = "pantul" if en["jenis"] == "pantul" else "posisi"
+        teks = f"{t} {rp(st['close'])} · {jenis} jalan sejak {tanggal(st['_tgl_e'])} ({pct(ubah)}) · {arah} · stop {rp(en['stop'])}"
         return teks + (" · ➕ tambah" if "tambah" in st else "")
     if "pantau" in st:
         return f"{t} {rp(st['close'])} · 👀 pantau: {st['pantau'] * 100:.0f}% lagi tembus SMA20"
+    if "calon_pantul" in st:
+        return f"{t} {rp(st['close'])} · 🔄 calon pantul: {st['calon_pantul'] * 100:.0f}% lagi tembus SMA20"
     if st["close"] >= config.TG_HARGA_MAKS:
         return f"{t} {rp(st['close'])} · harga ≥ {config.TG_HARGA_MAKS}, di luar kriteria"
     if not st["lolos"]:
@@ -217,8 +277,7 @@ def lengkapi(a, st):
             e = st[key][0] if key == "jalan" else st[key][1]
             st["_tgl_e"], st["_close_e"] = a["tgl"][e], a["Close"][e]
             if key == "selesai" and st[key][0] == "target":
-                _, _, tgt = target_di(a, e)
-                st["_ret_target"] = tgt / a["Close"][e] - 1
+                st["_ret_target"] = st[key][2]["target"] / a["Close"][e] - 1
     return st
 
 
@@ -304,14 +363,8 @@ def gambar(a, judul, sub, garis=(), n=90):
 
 def chart(t, a):
     st = lengkapi(a, status(a))
-    garis = []
-    if "masuk" in st and st["masuk"][2]:
-        garis = [(st["masuk"][2], "target", AQUA), (st["close"] * (1 - config.TG_STOP), "stop", RED)]
-    elif "jalan" in st:
-        e, mode, p, tgt = st["jalan"]
-        garis = ([(tgt, "target", AQUA)] if tgt else []) + [(st["_close_e"] * (1 - config.TG_STOP), "stop", RED)]
-    elif "masuk" in st:
-        garis = [(st["close"] * (1 - config.TG_STOP), "stop", RED)]
+    en = st.get("masuk") or st.get("pantul") or (st["jalan"][1] if "jalan" in st else None)
+    garis = (([(en["target"], "target", AQUA)] if en["target"] else []) + [(en["stop"], "stop", RED)]) if en else []
     cap = caption(t, st)
     sub = re.sub(r"[\U0001F000-\U0001FFFF\u2600-\u27BF]\ufe0f?\s?", "", cap.split(" · ", 1)[1] if " · " in cap else cap)
     png = gambar(a, f"{t} · Rp {rp(st['close'])} · {tanggal(st['tgl'])}", sub, garis)
