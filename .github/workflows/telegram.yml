@@ -1,0 +1,71 @@
+name: Bot Telegram
+
+on:
+  schedule:
+    - cron: "5 5 * * 1-5"      # 12:05 WIB Senin-Jumat: ringkasan siang
+    - cron: "5 11 * * 1-5"     # 18:05 WIB Senin-Jumat: ringkasan sore
+    - cron: "*/10 0-15 * * *"  # tiap 10 menit 07:00-22:59 WIB: balas chart kalau ada pesan
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "kirim = ringkasan sekarang, balas = jawab pesan masuk"
+        required: true
+        default: kirim
+        type: choice
+        options: [kirim, balas]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: telegram-${{ github.event.schedule == '*/10 0-15 * * *' && 'balas' || inputs.mode || 'kirim' }}
+  cancel-in-progress: false
+
+jobs:
+  bot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+    steps:
+      - name: Tentukan mode
+        id: mode
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then m="${{ inputs.mode }}"
+          elif [ "${{ github.event.schedule }}" = "*/10 0-15 * * *" ]; then m=balas
+          else m=kirim; fi
+          echo "mode=$m" >> "$GITHUB_OUTPUT"
+
+      # Cek ringan (tanpa install apa pun): lanjut hanya kalau ada pesan baru.
+      - name: Cek pesan baru
+        id: cek
+        if: steps.mode.outputs.mode == 'balas'
+        run: |
+          python3 - <<'EOF'
+          import json, os, urllib.request
+          url = f"https://api.telegram.org/bot{os.environ['TELEGRAM_BOT_TOKEN']}/getUpdates?timeout=0"
+          hasil = json.load(urllib.request.urlopen(url, timeout=30)).get("result", [])
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write(f"ada={'1' if hasil else '0'}\n")
+          print("pesan baru:", len(hasil))
+          EOF
+
+      - uses: actions/checkout@v4
+        if: steps.mode.outputs.mode == 'kirim' || steps.cek.outputs.ada == '1'
+
+      - uses: actions/setup-python@v5
+        if: steps.mode.outputs.mode == 'kirim' || steps.cek.outputs.ada == '1'
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        if: steps.mode.outputs.mode == 'kirim' || steps.cek.outputs.ada == '1'
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Jalankan bot
+        if: steps.mode.outputs.mode == 'kirim' || steps.cek.outputs.ada == '1'
+        run: python telegram_bot.py ${{ steps.mode.outputs.mode }}

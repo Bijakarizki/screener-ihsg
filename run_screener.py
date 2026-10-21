@@ -233,15 +233,6 @@ def main():
         json.dump(history_output, f, indent=None, default=str)
     log(f"Arsip disimpan ke {history_file}")
 
-    # Notifikasi Telegram (pola mepet + 7 ciri). Gagal kirim tidak boleh
-    # menggagalkan screening -- hasil di atas sudah tersimpan.
-    try:
-        import telegram_mepet
-
-        telegram_mepet.kirim_harian(daily_data, log=log)
-    except Exception as e:
-        log(f"Telegram gagal: {e}")
-
     log("=== SELESAI ===")
 
 

@@ -527,33 +527,27 @@ LATEST_RESULT_FILE = "data/latest_result.json"
 HISTORY_DIR = "data/history"
 
 # ============================================================
-# NOTIFIKASI TELEGRAM: POLA MEPET + 7 CIRI (telegram_mepet.py)
+# BOT TELEGRAM (telegram_bot.py)
 # ============================================================
-# Hasil backtest 2 tahun: pola mepet dengan >=5 dari 7 ciri dan MA besar
-# terdekat >=10% di atas -> 81% sampai MA besar dalam 60 hari bursa.
+# Strategi hasil backtest 5 tahun: SMA20 lilit dengan SMA3/5/10, harga <200,
+# bukan gorengan -> masuk saat close tembus SMA20.
+#   - SMA112/224 <= 5% di atas  -> target jauh (SMA besar >= 8% di atas)
+#   - selain itu                -> target MA60/100/200 terdekat, tambah posisi
+#                                  kalau lanjut tembus SMA112/224
+#   - stop -10% dari harga masuk
+# Ringkasan dikirim jam 12:00 & 18:00 WIB; balas chart kalau diketik kode saham.
 # Token & chat id dari env TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID (GitHub secrets).
-TG_SPREAD = 0.05                    # MA3/5/10/20 selisih maks 5%
-TG_DEKAT = 0.04                     # harga maks 4% dari MA20
+TG_SPREAD = 0.03                    # SMA3/5/10/20 selisih maks 3%
+TG_DEKAT = 0.03                     # harga maks 3% dari SMA20
+TG_LILIT_HARI = 5                   # lilit minimal 5 hari berturut-turut
+TG_TUNGGU = 20                      # tembus SMA20 maks 20 hari bursa setelah lilit
+TG_HARGA_MAKS = 200                 # hanya saham harga < 200
+TG_BARBAR_MAKS = 4                  # gorengan: >= 4 candle barbar dalam 60 hari
 TG_MIN_AKTIF = 15                   # minimal 15 dari 20 hari ada transaksi (high > low)
 TG_MIN_NILAI = 50e6                 # nilai transaksi median 20 hari min Rp 50 juta
-TG_MIN_JARAK_MA = 0.10              # MA besar terdekat (60/100/200) min 10% di atas harga
-TG_MIN_CIRI = 5                     # minimal 5 dari 7 ciri
-TG_MIN_STREAK = 3                   # SINYAL: sudah mepet minimal 3 hari berturut-turut
-TG_WINDOW_MEPET = 5                 # WATCHLIST: sempat mepet dalam 5 hari terakhir
-TG_MAX_CHART = 10                   # chart maks per kelompok (1 album Telegram); event tanpa chart
-
-# Pemantauan watchlist sejak hari pertama masuk (dihitung ulang dari histori tiap run)
-TG_PANTAU_LOOKBACK = 25             # telusuri 25 hari bursa terakhir untuk cari hari masuk
-TG_GAGAL_TURUN = 0.10               # ❌ gagal kalau close turun >=10% dari harga saat masuk
-TG_GAGAL_HARI = 15                  # ❌ gagal kalau 15 hari bursa belum juga mepet lagi
-TG_TAMPIL_SELESAI = 3               # hasil (✅/❌) ditampilkan 3 hari bursa setelah kejadian
-
-# Event "sebelum halt / news": hari pertama pasar anjlok terdeteksi otomatis
-# dalam TG_EVENT_LOOKBACK hari bursa terakhir, ditambah tanggal manual di bawah.
-TG_EVENT_LOOKBACK = 10              # event lebih lama dari 10 hari bursa tidak ditampilkan lagi
-TG_EVENT_WINDOW = 7                 # saham dihitung "lolos sebelum event" kalau lolos dalam 7 hari bursa sebelumnya
-TG_SHOCK_SEMUA = -0.04              # median return harian semua saham <= -4%
-TG_SHOCK_MURAH = -0.03              # atau median saham harga <200 <= -3%
-TG_EVENT_MANUAL = {                 # "YYYY-MM-DD": "keterangan" (hari kejadian, bukan sehari sebelumnya)
-    "2026-10-16": "Index halt",
-}
+TG_K2_JARAK = 0.05                  # SMA112/224 maks 5% di atas -> mode target jauh
+TG_K2_TARGET_MIN = 0.08             # target jauh: SMA besar terdekat yang >= 8% di atas
+TG_STOP = 0.10                      # stop -10% dari harga masuk
+TG_MAKS_SINYAL = 5                  # sinyal masuk maks 5 saham per pesan
+TG_MAKS_PANTAU = 5                  # watchlist maks 5 saham per pesan
+TG_MAKS_CHART = 3                   # maks chart per balasan

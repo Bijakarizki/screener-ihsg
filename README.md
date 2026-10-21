@@ -87,10 +87,11 @@ screener_app/
 ├── app.py                  # dashboard Streamlit (UI)
 ├── screener.py              # logic screening (porting dari notebook asli)
 ├── run_screener.py          # script yang dijalankan GitHub Actions tiap hari
-├── telegram_mepet.py        # notifikasi Telegram: pola mepet + 7 ciri (opsional)
+├── telegram_bot.py          # bot Telegram: ringkasan 12:00 & 18:00 WIB + chart sesuai permintaan
 ├── config.py                 # daftar 931 ticker + semua parameter SMA/threshold
 ├── requirements.txt
 ├── .github/workflows/run_screener.yml   # jadwal otomatis harian
+├── .github/workflows/telegram.yml       # jadwal bot Telegram
 └── data/
     ├── latest_result.json   # hasil terbaru (dibaca dashboard)
     └── history/              # arsip harian (untuk lihat histori ke depan)
@@ -101,24 +102,27 @@ Semua angka (toleransi SMA, minimal gap TP, dll) ada di `config.py`, sama persis
 dengan notebook aslinya. Tinggal ubah angkanya, commit, push — hasil run berikutnya
 otomatis pakai parameter baru.
 
-## 📲 Notifikasi Telegram: pola mepet + 7 ciri (opsional)
-Setelah screening harian selesai, `telegram_mepet.py` mengirim ke Telegram:
-ringkasan pasar, daftar **🎯 Sinyal** (sedang mepet, ≥5/7 ciri, MA besar ≥10% di atas),
-**👀 Watchlist** (sempat mepet ≤5 hari lalu, tunggu mepet lagi), dan **📌 Lolos sebelum
-event** (saham yang lolos dalam 7 hari bursa sebelum pasar anjlok / news), plus chart
-candle + MA + volume tiap saham. Tanpa secret di bawah, langkah ini otomatis dilewati.
+## 📲 Bot Telegram (opsional)
+`telegram_bot.py` menjalankan strategi "SMA20 lilit → tembus SMA20" (aturan di bagian
+`BOT TELEGRAM` di `config.py`): harga <200, bukan gorengan, masuk saat close tembus SMA20,
+target MA60/100/200 (atau SMA besar yang jauh kalau SMA112/224 sudah dekat), stop −10%.
+
+- **12:00 & 18:00 WIB** (Senin–Jumat, kecuali libur bursa): satu pesan singkat berisi
+  saham yang 🟢 masuk, ➕ tambah posisi, 🎯 kena target, ⛔ kena stop, dan 👀 watchlist.
+- **Ketik kode saham** ke bot (misal `BAIK`) → dibalas chart + status singkat. Pesan dicek
+  tiap ±10 menit antara 07:00–22:59 WIB, jadi balasan datang dalam ±10–20 menit.
+- LPM tidak dihitung bot (datanya tidak ada di Yahoo) — tetap dicek manual.
 
 Cara menyalakan (sekali saja):
 1. Di Telegram, chat **@BotFather** → kirim `/newbot` → ikuti langkahnya → simpan **token** bot.
-2. Kirim pesan apa saja ke bot kamu (atau masukkan bot ke grup), lalu buka
+2. Kirim pesan apa saja ke bot kamu, lalu buka
    `https://api.telegram.org/bot<TOKEN>/getUpdates` di browser → catat angka `"chat":{"id": ...}`.
 3. Di repo GitHub: **Settings → Secrets and variables → Actions → New repository secret**,
    buat `TELEGRAM_BOT_TOKEN` (token tadi) dan `TELEGRAM_CHAT_ID` (angka chat id).
-4. Tab **Actions** → **Run Screener Saham IHSG** → **Run workflow** untuk tes kirim.
+4. Tab **Actions** → **Bot Telegram** → **Run workflow** (mode `kirim`) untuk tes.
 
-Parameter (`TG_*`) ada di bagian paling bawah `config.py`. Tanggal kejadian penting
-(halt, news) bisa ditambah manual di `TG_EVENT_MANUAL`; hari pasar anjlok juga
-terdeteksi otomatis. Uji tanpa kirim: `python telegram_mepet.py --dry-run folder_output`.
+Bot hanya membalas chat `TELEGRAM_CHAT_ID`. Uji tanpa kirim:
+`python telegram_bot.py kirim --dry-run folder_output` atau `python telegram_bot.py chart BAIK --dry-run folder_output`.
 
 ## 🛡️ Soal rate-limit Yahoo Finance
 Yahoo Finance kadang membatasi (rate-limit) request dari server yang mengirim banyak
