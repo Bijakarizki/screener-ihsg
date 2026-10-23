@@ -1,9 +1,9 @@
 name: Bot Telegram
 
 on:
+  # Ringkasan 12:00 & 18:00 WIB dipicu dari luar lewat workflow_dispatch (mode kirim),
+  # karena jadwal GitHub sering telat berjam-jam atau terlewat.
   schedule:
-    - cron: "5 5 * * 1-5"      # 12:05 WIB Senin-Jumat: ringkasan siang
-    - cron: "5 11 * * 1-5"     # 18:05 WIB Senin-Jumat: ringkasan sore
     - cron: "*/10 0-15 * * *"  # tiap 10 menit 07:00-22:59 WIB: balas chart kalau ada pesan
   workflow_dispatch:
     inputs:
@@ -18,7 +18,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: telegram-${{ github.event.schedule == '*/10 0-15 * * *' && 'balas' || inputs.mode || 'kirim' }}
+  group: telegram-${{ inputs.mode || 'balas' }}
   cancel-in-progress: false
 
 jobs:
@@ -33,8 +33,7 @@ jobs:
         id: mode
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then m="${{ inputs.mode }}"
-          elif [ "${{ github.event.schedule }}" = "*/10 0-15 * * *" ]; then m=balas
-          else m=kirim; fi
+          else m=balas; fi
           echo "mode=$m" >> "$GITHUB_OUTPUT"
 
       # Cek ringan (tanpa install apa pun): lanjut hanya kalau ada pesan baru.
