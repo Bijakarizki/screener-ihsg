@@ -111,8 +111,11 @@ target MA60/100/200 (atau SMA besar yang jauh kalau SMA112/224 sudah dekat), sto
   saham yang 🟢 masuk, 🔄 pantul, ➕ tambah posisi, 🎯 kena target, ⛔ kena stop, dan 👀 watchlist.
 - **🔄 PANTUL** (gaya STRK): sempat lilit, dibanting ≥25%, lalu close tembus SMA20 lagi. Target harga
   sebelum dibanting, stop di low dasar. "Calon pantul" = sudah dibanting tapi belum tembus SMA20.
+- **Peluang (skor tren 0–6)** di MASUK & PANTAU: 1 poin per cek (TSI > 0, Guppy EMA pendek > panjang,
+  SMA60 naik, volume MA20 > MA120, ADX ≥ 20, Bollinger Width < 11%). Angkanya = peluang naik 15% duluan
+  sebelum turun 15% dalam 60 hari (backtest 5 tahun, harga <200). Bisa dijadikan filter lewat `TG_SKOR_MIN`.
 - **Ketik kode saham** ke bot (misal `BAIK`) → dibalas chart + status singkat. Pesan dicek
-  tiap ±10 menit antara 07:00–22:59 WIB, jadi balasan datang dalam ±10–20 menit.
+  tiap ±10 menit antara 07:00–22:59 WIB (jadwal GitHub, kadang telat).
 - LPM tidak dihitung bot (datanya tidak ada di Yahoo) — tetap dicek manual.
 
 Cara menyalakan (sekali saja):

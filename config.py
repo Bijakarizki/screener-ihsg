@@ -562,3 +562,11 @@ TG_PANTUL_JEJAK = 25                # lilit maks 25 hari bursa sebelum titik ter
 TG_PANTUL_BANTING = 0.25            # dibanting minimal 25% dari harga lilit
 TG_PANTUL_VOL_MAKS = None           # isi 2 = buang yang volume hari tembus >= 2x (rata-rata naik, tapi STRK ikut terbuang)
 
+# Skor tren (0-6) untuk MASUK & PANTAU, 1 poin per cek: TSI > 0, Guppy EMA pendek > panjang, SMA60 naik
+# (vs 20 hari lalu), volume MA20 > MA120, ADX14 >= 20, Bollinger Width < 11%. Backtest 5 tahun di 6.364
+# tembus SMA20 setelah lilit: peluang naik 15% duluan (sebelum turun 15%) dalam 60 hari, harga <200.
+# Sebagai filter tidak membantu dengan aturan keluar bot (target MA60/100/200, stop -10%): skor >= 3 rata-rata
+# +4,8% tapi menang 45%, skor 0-2 rata-rata +1,9% menang 54%, jadi default hanya ditampilkan.
+TG_SKOR_MIN = 0                     # MASUK & PANTAU dengan skor di bawah ini tidak ditampilkan (0 = tampilkan semua)
+TG_PELUANG = (56, 56, 56, 66, 66, 68, 68)  # peluang (%) per skor 0..6
+

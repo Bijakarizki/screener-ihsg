@@ -53,7 +53,32 @@ def siapkan(df):
     a["streak_longgar"] = _streak((spread <= config.TG_PANTUL_SPREAD) & (np.abs(gap) <= config.TG_PANTUL_DEKAT) & a["likuid"])
     pc = np.r_[np.nan, c[:-1]]
     a["barbar"] = (((h - l) / pc >= 0.15) | ((o - pc) / pc >= 0.10)).astype(int)
+    a["skor"] = skor_tren(df)
     return a
+
+
+def skor_tren(df):
+    """Skor 0-6 per hari: TSI > 0, Guppy pendek > panjang, SMA60 naik, volume MA20 > MA120, ADX >= 20, BB Width < 11%."""
+    h, l, c, v = (df[k].astype(float).reset_index(drop=True) for k in ("High", "Low", "Close", "Volume"))
+    ema = lambda x, n: x.ewm(span=n, adjust=False).mean()
+    wilder = lambda x, n: x.ewm(alpha=1 / n, adjust=False).mean()
+    m = c.diff()
+    tsi = ema(ema(m, 25), 13) / ema(ema(m.abs(), 25), 13)
+    guppy = (pd.concat([ema(c, n) for n in (3, 5, 8, 10, 12, 15)], axis=1).mean(axis=1)
+             / pd.concat([ema(c, n) for n in (30, 35, 40, 45, 50, 60)], axis=1).mean(axis=1))
+    sma60 = c.rolling(60).mean()
+    tr = pd.concat([h - l, (h - c.shift()).abs(), (l - c.shift()).abs()], axis=1).max(axis=1)
+    naik, turun = h.diff(), -l.diff()
+    pdi = 100 * wilder(naik.where((naik > turun) & (naik > 0), 0), 14) / wilder(tr, 14)
+    ndi = 100 * wilder(turun.where((turun > naik) & (turun > 0), 0), 14) / wilder(tr, 14)
+    adx = wilder(100 * (pdi - ndi).abs() / (pdi + ndi), 14)
+    bbw = 4 * c.rolling(20).std() / c.rolling(20).mean()
+    cek = [tsi > 0, guppy > 1, sma60 > sma60.shift(20), v.rolling(20).mean() > v.rolling(120).mean(), adx >= 20, bbw < 0.11]
+    return sum(x.fillna(False).astype(int) for x in cek).to_numpy()
+
+
+def peluang(a, i):
+    return config.TG_PELUANG[int(a["skor"][i])]
 
 
 def _streak(mask):
@@ -77,10 +102,12 @@ def lolos_saringan(a, i):
             and a["barbar"][max(0, i - 59):i + 1].sum() < config.TG_BARBAR_MAKS)
 
 
-def masuk_di(a, i):
-    """Hari ke-i: close tembus SMA20 setelah setup dalam TG_TUNGGU hari terakhir."""
+def masuk_di(a, i, cek_skor=True):
+    """Hari ke-i: close tembus SMA20 setelah setup dalam TG_TUNGGU hari terakhir, skor tren cukup."""
     c, m20 = a["Close"], a["ma"][20]
     if i < 1 or not (c[i] > m20[i] and c[i - 1] <= m20[i - 1]) or not lolos_saringan(a, i):
+        return False
+    if cek_skor and a["skor"][i] < config.TG_SKOR_MIN:
         return False
     return any(setup_di(a, s) for s in range(max(0, i - config.TG_TUNGGU), i))
 
@@ -158,14 +185,16 @@ def status(a, i=None):
     """Kondisi saham pada bar i (default hari terakhir) untuk ringkasan & caption chart."""
     i = len(a["Close"]) - 1 if i is None else i
     c, ma = a["Close"], a["ma"]
-    st = dict(i=i, close=c[i], tgl=a["tgl"][i], lolos=lolos_saringan(a, i),
+    st = dict(i=i, close=c[i], tgl=a["tgl"][i], lolos=lolos_saringan(a, i), skor=int(a["skor"][i]), peluang=peluang(a, i),
               vol=a["Volume"][i] / a["vs20"][i] if a["vs20"][i] else np.nan)
     en = entri_di(a, i)
     if en:
         st[en["jenis"]] = en
     elif c[i] < ma[20][i] and cari_banting(a, i):
         st["calon_pantul"] = ma[20][i] / c[i] - 1
-    if lolos_saringan(a, i) and setup_di(a, i):
+    elif masuk_di(a, i, cek_skor=False):
+        st["skor_rendah"] = True
+    if lolos_saringan(a, i) and setup_di(a, i) and st["skor"] >= config.TG_SKOR_MIN:
         st["pantau"] = ma[20][i] / c[i] - 1
         st["pantau_jauh"] = any(not np.isnan(ma[p][i]) and c[i] < ma[p][i] <= c[i] * (1 + config.TG_K2_JARAK) for p in (112, 224))
     # entry yang masih berjalan / baru selesai hari ini
@@ -205,6 +234,10 @@ def teks_target(en, close):
     return f"{arah} · stop {rp(en['stop'])}"
 
 
+def teks_peluang(st):
+    return f"peluang {st['peluang']}% ({st['skor']}/6)"
+
+
 def ringkasan(semua, jam):
     masuk = [(t, s) for t, s in semua.items() if "masuk" in s]
     masuk.sort(key=lambda x: (x[1]["masuk"]["mode"] != "jauh", -(x[1]["vol"] if x[1]["vol"] == x[1]["vol"] else 0)))
@@ -220,7 +253,7 @@ def ringkasan(semua, jam):
     out = [f"📊 {jam} · {tanggal(tgl)[:-5]}"]
     if masuk:
         out.append("🟢 MASUK")
-        out += [f"{t} {rp(s['close'])} {teks_target(s['masuk'], s['close'])}" for t, s in masuk[:config.TG_MAKS_SINYAL]]
+        out += [f"{t} {rp(s['close'])} {teks_target(s['masuk'], s['close'])} · {teks_peluang(s)}" for t, s in masuk[:config.TG_MAKS_SINYAL]]
     else:
         out.append("🟢 MASUK: belum ada")
     if pantul:
@@ -233,20 +266,20 @@ def ringkasan(semua, jam):
     if stop:
         out.append("⛔ STOP: " + ", ".join(stop))
     if pantau:
-        out.append("👀 PANTAU: " + ", ".join(f"{t} ({s['pantau'] * 100:.1f}%)".replace(".", ",")
+        out.append("👀 PANTAU: " + ", ".join(f"{t} ({s['pantau'] * 100:.1f}% · {s['peluang']}%)".replace(".", ",")
                                              for t, s in pantau[:config.TG_MAKS_PANTAU]))
     if calon:
         out.append("🔄 CALON PANTUL: " + ", ".join(f"{t} ({s['calon_pantul'] * 100:.1f}%)".replace(".", ",")
                                                   for t, s in calon[:config.TG_MAKS_PANTAU]))
     if pantau or calon:
-        out.append("(angka = jarak ke tembus SMA20)")
+        out.append("(angka = jarak ke tembus SMA20" + (" · peluang naik 15% duluan)" if pantau else ")"))
     out.append("Cek LPM dulu · ketik kode saham untuk chart")
     return "\n".join(out)
 
 
 def caption(t, st):
     if "masuk" in st:
-        return f"{t} {rp(st['close'])} · 🟢 masuk hari ini {teks_target(st['masuk'], st['close'])}"
+        return f"{t} {rp(st['close'])} · 🟢 masuk hari ini {teks_target(st['masuk'], st['close'])} · {teks_peluang(st)}"
     if "pantul" in st:
         return f"{t} {rp(st['close'])} · 🔄 pantul hari ini {teks_target(st['pantul'], st['close'])}"
     if "selesai" in st:
@@ -260,7 +293,9 @@ def caption(t, st):
         teks = f"{t} {rp(st['close'])} · {jenis} jalan sejak {tanggal(st['_tgl_e'])} ({pct(ubah)}) · {arah} · stop {rp(en['stop'])}"
         return teks + (" · ➕ tambah" if "tambah" in st else "")
     if "pantau" in st:
-        return f"{t} {rp(st['close'])} · 👀 pantau: {st['pantau'] * 100:.0f}% lagi tembus SMA20"
+        return f"{t} {rp(st['close'])} · 👀 pantau: {st['pantau'] * 100:.0f}% lagi tembus SMA20 · {teks_peluang(st)}"
+    if "skor_rendah" in st:
+        return f"{t} {rp(st['close'])} · tembus SMA20 tapi skor tren rendah · {teks_peluang(st)}, tidak masuk filter"
     if "calon_pantul" in st:
         return f"{t} {rp(st['close'])} · 🔄 calon pantul: {st['calon_pantul'] * 100:.0f}% lagi tembus SMA20"
     if st["close"] >= config.TG_HARGA_MAKS:
